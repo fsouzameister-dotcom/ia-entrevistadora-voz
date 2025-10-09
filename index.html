@@ -125,7 +125,6 @@
 </div>
 
 <script>
-    // --- AQUI ESTÁ A CORREÇÃO ---
     // Envolvemos todo o código em um evento que espera o HTML carregar completamente.
     document.addEventListener('DOMContentLoaded', () => {
         const startScreen = document.getElementById('start-screen');
@@ -149,8 +148,12 @@
         let currentStepId = "1";
         let chatHistory = [];
         let isListening = false;
-        const API_INTERVIEW_URL = 'http://localhost:5000/interview';
-        const API_SYNTHESIZE_URL = 'http://localhost:5000/synthesize';
+        
+        // --- AQUI ESTÁ A ATUALIZAÇÃO FINAL ---
+        // A URL agora aponta para o seu servidor no Render.
+        const API_URL = 'https://gui-entrevista-ia.onrender.com';
+        const API_INTERVIEW_URL = `${API_URL}/interview`;
+        const API_SYNTHESIZE_URL = `${API_URL}/synthesize`;
 
         function playAudioResponse(audioBlob) {
             const audioUrl = URL.createObjectURL(audioBlob);
