@@ -1,0 +1,7 @@
+google-generativeai
+google-cloud-texttospeech
+flask
+flask-cors
+python-dotenv
+numpy
+gunicorn

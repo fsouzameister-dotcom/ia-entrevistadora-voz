@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Entrevista por Voz com "Gui"</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary-color: #3d8bfd;
+            --secondary-color: #4a4a4a;
+            --background-color: #f0f4f8;
+            --surface-color: #ffffff;
+            --error-color: #d9534f;
+        }
+        body {
+            font-family: 'Roboto', sans-serif;
+            background-color: var(--background-color);
+            margin: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            color: var(--secondary-color);
+        }
+        .container {
+            width: 90%;
+            max-width: 500px;
+            text-align: center;
+            background: var(--surface-color);
+            padding: 40px;
+            border-radius: 20px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            transition: all 0.5s ease;
+        }
+        
+        /* TELA INICIAL */
+        #start-screen h1 {
+            font-weight: 500;
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+        #start-screen p {
+            font-size: 1.2em;
+            margin-bottom: 40px;
+            font-weight: 300;
+        }
+        #start-btn {
+            background: linear-gradient(45deg, #3d8bfd, #0d6efd);
+            color: white;
+            border: none;
+            border-radius: 50px;
+            padding: 15px 30px;
+            font-size: 1.2em;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(0, 123, 255, 0.4);
+        }
+        #start-btn:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 6px 20px rgba(0, 123, 255, 0.5);
+        }
+
+        /* TELA DA ENTREVISTA */
+        #status {
+            font-size: 1.6em;
+            height: 60px;
+            margin-bottom: 20px;
+            font-weight: 400;
+        }
+        #mic-btn {
+            background-color: var(--primary-color);
+            border: none;
+            border-radius: 50%;
+            width: 100px;
+            height: 100px;
+            cursor: pointer;
+            transition: all 0.2s ease-in-out;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin: 20px auto;
+        }
+        #mic-btn:hover:not(:disabled) { transform: scale(1.1); }
+        #mic-btn:disabled { background-color: #a0a0a0; cursor: not-allowed; }
+        #mic-btn.listening {
+            background-color: var(--error-color);
+            animation: pulse 1.5s infinite;
+        }
+        #mic-icon { width: 50px; height: 50px; fill: white; }
+        @keyframes pulse {
+            0% { box-shadow: 0 0 0 0 rgba(217, 83, 79, 0.7); }
+            70% { box-shadow: 0 0 0 25px rgba(217, 83, 79, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(217, 83, 79, 0); }
+        }
+        #transcript {
+            margin-top: 20px;
+            font-size: 1.1em;
+            color: #777;
+            height: 30px;
+            font-style: italic;
+        }
+        .hidden { display: none; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div id="start-screen">
+        <h1>Entrevista com a IA "Gui"</h1>
+        <p>Gui fará algumas perguntas sobre sua experiência. A conversa é por voz e leva apenas alguns minutos.</p>
+        <button id="start-btn">Iniciar Pesquisa</button>
+    </div>
+    <div id="interview-screen" class="hidden">
+        <div id="status">Pressione o microfone para responder</div>
+        <button id="mic-btn" title="Iniciar/Parar gravação">
+            <svg id="mic-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.3-3c0 3-2.54 5.1-5.3 5.1S6.7 14 6.7 11H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c3.28-.49 6-3.31 6-6.72h-1.7z"/></svg>
+        </button>
+        <div id="transcript"></div>
+    </div>
+</div>
+
+<script>
+    // --- AQUI ESTÁ A CORREÇÃO ---
+    // Envolvemos todo o código em um evento que espera o HTML carregar completamente.
+    document.addEventListener('DOMContentLoaded', () => {
+        const startScreen = document.getElementById('start-screen');
+        const interviewScreen = document.getElementById('interview-screen');
+        const startBtn = document.getElementById('start-btn');
+        const statusDiv = document.getElementById('status');
+        const transcriptDiv = document.getElementById('transcript');
+        const micBtn = document.getElementById('mic-btn');
+
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        let recognition;
+        if (SpeechRecognition) {
+            recognition = new SpeechRecognition();
+            recognition.lang = 'pt-BR';
+            recognition.continuous = false;
+            recognition.interimResults = false;
+        } else {
+            startScreen.innerHTML = "<h1>Erro</h1><p>Seu navegador não suporta a API de reconhecimento de voz. Tente usar o Google Chrome.</p>";
+        }
+
+        let currentStepId = "1";
+        let chatHistory = [];
+        let isListening = false;
+        const API_INTERVIEW_URL = 'http://localhost:5000/interview';
+        const API_SYNTHESIZE_URL = 'http://localhost:5000/synthesize';
+
+        function playAudioResponse(audioBlob) {
+            const audioUrl = URL.createObjectURL(audioBlob);
+            const audio = new Audio(audioUrl);
+            audio.play();
+            statusDiv.textContent = "Gui está falando...";
+            micBtn.disabled = true;
+
+            audio.onended = () => {
+                if (currentStepId !== "END") {
+                    statusDiv.textContent = "Sua vez de falar...";
+                    startListening();
+                } else {
+                    statusDiv.textContent = "Entrevista concluída. Obrigado!";
+                    micBtn.disabled = true;
+                    micBtn.classList.remove('listening');
+                }
+            };
+        }
+
+        async function getAIResponse(userText = "") {
+            statusDiv.textContent = "Gui está processando...";
+            micBtn.disabled = true;
+            if (userText) transcriptDiv.textContent = `Você disse: "${userText}"`;
+            
+            try {
+                const interviewResponse = await fetch(API_INTERVIEW_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ response: userText, current_step_id: currentStepId, history: chatHistory }),
+                });
+                const interviewData = await interviewResponse.json();
+                if (!interviewResponse.ok) throw new Error(interviewData.error || "Falha na API da entrevista.");
+
+                currentStepId = interviewData.next_step_id;
+                if (userText) chatHistory.push({ role: 'user', parts: [userText] });
+                chatHistory.push({ role: 'model', parts: [interviewData.answer] });
+
+                const ttsResponse = await fetch(API_SYNTHESIZE_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ text: interviewData.answer })
+                });
+                if (!ttsResponse.ok) throw new Error("Falha ao gerar áudio.");
+                
+                const audioBlob = await ttsResponse.blob();
+                playAudioResponse(audioBlob);
+
+            } catch (error) {
+                console.error("Erro no fluxo da entrevista:", error);
+                statusDiv.textContent = "Ocorreu um erro. Tente novamente.";
+                micBtn.disabled = false;
+            }
+        }
+        
+        function startListening() {
+            if (!isListening) {
+                isListening = true;
+                micBtn.disabled = false;
+                micBtn.classList.add('listening');
+                transcriptDiv.textContent = "";
+                recognition.start();
+            }
+        }
+
+        function stopListening() {
+            if (isListening) {
+                isListening = false;
+                micBtn.classList.remove('listening');
+                recognition.stop();
+            }
+        }
+        
+        recognition.onresult = (event) => {
+            const userText = event.results[0][0].transcript;
+            stopListening();
+            getAIResponse(userText);
+        };
+
+        recognition.onerror = (event) => {
+            console.error("Erro no reconhecimento de voz:", event.error);
+            statusDiv.textContent = "Não consegui te ouvir. Tente novamente.";
+            stopListening();
+        };
+
+        micBtn.addEventListener('click', () => {
+            if (isListening) stopListening();
+            else startListening();
+        });
+        
+        startBtn.addEventListener('click', () => {
+            startScreen.classList.add('hidden');
+            interviewScreen.classList.remove('hidden');
+            getAIResponse();
+        });
+    });
+</script>
+
+</body>
+</html>

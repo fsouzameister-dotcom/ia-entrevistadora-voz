@@ -1,0 +1,11 @@
+# Ambiente Virtual
+venv/
+__pycache__/
+
+# Arquivos de Segredo - NUNCA ENVIAR PARA O GITHUB
+.env
+credentials.json
+
+# Arquivos de Sistema
+*.pyc
+.DS_Store

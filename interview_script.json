@@ -1,0 +1,52 @@
+{
+  "start_step_id": "1",
+  "end_step_id": "END",
+  "steps": {
+    "1": {
+      "question_text": "Olá! Meu nome é Gui e estou fazendo uma pesquisa rápida para entender melhor a experiência das pessoas em suas academias. Você teria alguns minutos para conversarmos?",
+      "next_step_id": "2"
+    },
+    "2": {
+      "question_text": "Ótimo! Para começar, vamos falar sobre a estrutura física da sua academia. Pensando em aspectos como limpeza, organização, espaço, ventilação e iluminação, como você avalia esses pontos?",
+      "next_step_id": "3",
+      "conditional_logic": [
+        {
+          "keywords": ["sujeira", "bagunça", "imundo", "sujo"],
+          "next_step_id": "2_A"
+        },
+        {
+          "keywords": ["lotada", "apertada", "cheia", "sem espaço"],
+          "next_step_id": "2_B"
+        }
+      ]
+    },
+    "2_A": {
+      "question_text": "Entendo. Você poderia me dar um exemplo de uma área ou situação que te chamou a atenção nesse sentido de limpeza?",
+      "next_step_id": "3"
+    },
+    "2_B": {
+      "question_text": "Isso da lotação é um ponto importante. Em quais horários ou áreas você mais sente esse impacto?",
+      "next_step_id": "3"
+    },
+    "3": {
+      "question_text": "Entendido. Agora, sobre os equipamentos. Você encontra a variedade que precisa para os seus treinos? E o que você acha da manutenção e da qualidade dos aparelhos disponíveis?",
+      "next_step_id": "4"
+    },
+    "4": {
+        "question_text": "Obrigado pelo feedback. Pensando agora nos profissionais e no atendimento, como você descreveria sua experiência com os instrutores e a equipe da recepção? Você se sente bem orientado(a) e acolhido(a)?",
+        "next_step_id": "5"
+    },
+    "5": {
+        "question_text": "Estamos quase no fim. Por último, sobre o ambiente geral e a motivação. Você sente que a sua academia promove um ambiente que te motiva e te faz sentir bem? É um lugar que você considera acolhedor e inclusivo?",
+        "next_step_id": "6"
+    },
+    "6": {
+        "question_text": "Essas eram as minhas perguntas principais. Existe mais algum ponto, positivo ou negativo, que você gostaria de comentar sobre a sua experiência?",
+        "next_step_id": "END"
+    },
+    "END": {
+      "question_text": "Agradeço imensamente pelo seu tempo e por compartilhar suas opiniões. Sua contribuição é muito valiosa! Tenha um ótimo dia.",
+      "is_final": true
+    }
+  }
+}
