@@ -6,46 +6,86 @@
       "question_text": "Olá! Meu nome é Gui e estou fazendo uma pesquisa rápida para entender melhor a experiência das pessoas em suas academias. Você teria alguns minutos para conversarmos?",
       "next_step_id": "2"
     },
+
     "2": {
-      "question_text": "Ótimo! Para começar, vamos falar sobre a estrutura física da sua academia. Pensando em aspectos como limpeza, organização, espaço, ventilação e iluminação, como você avalia esses pontos?",
-      "next_step_id": "3",
+      "question_text": "Ótimo! Para começar, vamos falar sobre a estrutura da sua academia. Em relação à limpeza e organização dos espaços, qual é a sua opinião?",
+      "next_step_id": "2_2",
       "conditional_logic": [
         {
-          "keywords": ["sujeira", "bagunça", "imundo", "sujo"],
-          "next_step_id": "2_A"
-        },
-        {
-          "keywords": ["lotada", "apertada", "cheia", "sem espaço"],
-          "next_step_id": "2_B"
+          "keywords": ["sujeira", "bagunça", "imundo", "sujo", "desorganizada"],
+          "next_step_id": "2_1"
         }
       ]
     },
-    "2_A": {
-      "question_text": "Entendo. Você poderia me dar um exemplo de uma área ou situação que te chamou a atenção nesse sentido de limpeza?",
-      "next_step_id": "3"
+    "2_1": {
+      "question_text": "Entendo. Você poderia me dar um exemplo de uma área ou situação que te chamou a atenção nesse sentido de limpeza ou organização?",
+      "next_step_id": "2_2"
     },
-    "2_B": {
+    "2_2": {
+      "question_text": "Certo. E sobre o espaço e a lotação? Você sente que a academia é espaçosa o suficiente para treinar com conforto, mesmo nos horários de pico?",
+      "next_step_id": "2_4",
+      "conditional_logic": [
+        {
+          "keywords": ["lotada", "apertada", "cheia", "sem espaço", "muita gente"],
+          "next_step_id": "2_3"
+        }
+      ]
+    },
+    "2_3": {
       "question_text": "Isso da lotação é um ponto importante. Em quais horários ou áreas você mais sente esse impacto?",
+      "next_step_id": "2_4"
+    },
+    "2_4": {
+      "question_text": "Ok. E o que você me diz da iluminação e ventilação do ambiente? São adequadas?",
+      "next_step_id": "2_5"
+    },
+    "2_5": {
+      "question_text": "Para fechar este tópico da estrutura, como você avalia os vestiários e banheiros?",
       "next_step_id": "3"
     },
+
     "3": {
-      "question_text": "Entendido. Agora, sobre os equipamentos. Você encontra a variedade que precisa para os seus treinos? E o que você acha da manutenção e da qualidade dos aparelhos disponíveis?",
+      "question_text": "Entendido. Agora, sobre os equipamentos. Você costuma encontrar uma boa variedade de aparelhos para os seus objetivos?",
+      "next_step_id": "3_1"
+    },
+    "3_1": {
+      "question_text": "E sobre a manutenção e conservação desses equipamentos? Eles costumam estar em bom estado de funcionamento?",
+      "next_step_id": "4",
+      "conditional_logic": [
+        {
+          "keywords": ["quebrado", "defeito", "manutenção", "estragado", "velho"],
+          "next_step_id": "3_2"
+        }
+      ]
+    },
+    "3_2": {
+      "question_text": "Isso é um ponto crítico. Você já precisou reportar algum equipamento com defeito? Como foi a experiência com a equipe?",
       "next_step_id": "4"
     },
+    
     "4": {
-        "question_text": "Obrigado pelo feedback. Pensando agora nos profissionais e no atendimento, como você descreveria sua experiência com os instrutores e a equipe da recepção? Você se sente bem orientado(a) e acolhido(a)?",
-        "next_step_id": "5"
+      "question_text": "Obrigado pelo feedback. Vamos falar sobre as pessoas. Como você descreve o suporte e a orientação dos instrutores durante o seu treino?",
+      "next_step_id": "4_1"
     },
+    "4_1": {
+      "question_text": "E sobre o atendimento geral, da recepção aos outros funcionários, como você se sente tratado(a)?",
+      "next_step_id": "4_2"
+    },
+    "4_2": {
+      "question_text": "Sua academia oferece serviços extras que você valoriza, como avaliação física, aulas em grupo ou acompanhamento nutricional?",
+      "next_step_id": "5"
+    },
+
     "5": {
-        "question_text": "Estamos quase no fim. Por último, sobre o ambiente geral e a motivação. Você sente que a sua academia promove um ambiente que te motiva e te faz sentir bem? É um lugar que você considera acolhedor e inclusivo?",
+        "question_text": "Estamos quase no fim. Por último, sobre o ambiente geral e a motivação. Você sente que a sua academia promove um ambiente que te inspira a continuar treinando? É um lugar que você considera acolhedor e inclusivo?",
         "next_step_id": "6"
     },
     "6": {
-        "question_text": "Essas eram as minhas perguntas principais. Existe mais algum ponto, positivo ou negativo, que você gostaria de comentar sobre a sua experiência?",
+        "question_text": "Essas eram as minhas perguntas principais. Existe mais algum ponto, positivo ou negativo, que você acredita ser importante sobre a sua experiência?",
         "next_step_id": "END"
     },
     "END": {
-      "question_text": "Agradeço imensamente pelo seu tempo e por compartilhar suas opiniões. Sua contribuição é muito valiosa! Tenha um ótimo dia.",
+      "question_text": "Agradeço imensamente pelo seu tempo e por compartilhar suas opiniões. Sua contribuição foi muito valiosa para a nossa pesquisa! Tenha um ótimo dia.",
       "is_final": true
     }
   }
