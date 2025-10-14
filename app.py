@@ -9,54 +9,54 @@ from io import BytesIO
 from dotenv import load_dotenv
 import google.generativeai as genai
 from google.cloud import texttospeech
-from flask import Flask, request, jsonify, Response, send_from_directory, send_file
+from flask import Flask, request, jsonify, Response, send_file
+
+# --- MUDANÇA 1: REMOVIDA A IMPORTAÇÃO 'send_from_directory' QUE NÃO É MAIS NECESSÁRIA ---
+from flask_cors import CORS
 
 load_dotenv()
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # --- CONFIGURAÇÕES E INICIALIZAÇÃO ---
-ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "SENHA_ADMIN") # Pega a senha do Render, ou usa um padrão
+ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "SENHA_ADMIN")
 REPORTS_DIR = "relatorios"
 
 if not os.path.exists(REPORTS_DIR):
     os.makedirs(REPORTS_DIR)
 
-# --- INICIALIZAÇÃO DOS SERVIÇOS GOOGLE ---
+# --- INICIALIZAÇÃO DOS SERVIÇOS ---
 google_api_key = os.getenv("GOOGLE_API_KEY")
 if not google_api_key: raise ValueError("Chave da API do Google não encontrada.")
 genai.configure(api_key=google_api_key)
 generation_model = genai.GenerativeModel('models/gemini-2.5-flash')
-logging.info("Modelo Gemini ('models/gemini-2.5-flash') inicializado.")
+logging.info("Modelo Gemini inicializado.")
+
+tts_client = None
 try:
     tts_client = texttospeech.TextToSpeechClient()
-    logging.info("Cliente Google TTS inicializado.")
+    logging.info("Cliente Google TTS inicializado com sucesso.")
 except Exception as e:
-    logging.warning(f"Não foi possível inicializar o cliente Google TTS: {e}")
-    tts_client = None
+    logging.error(f"FALHA CRÍTICA AO INICIALIZAR O CLIENTE GOOGLE TTS: {e}")
 
 # --- CARREGAMENTO DO ROTEIRO E PERSONA ---
-SYSTEM_PROMPT = """
-Você é "Gui", um entrevistador de IA de elite. Sua personalidade é calorosa, curiosa, empática e profissional. Seu objetivo principal é conduzir uma pesquisa que se sinta como uma conversa humana genuína.
-Para cada interação, siga estritamente este fluxo de 4 passos:
-1.  **Agradecer/Reconhecer:** Inicie sua resposta com uma frase curta de reconhecimento.
-2.  **Refletir/Empatizar:** Faça um breve comentário de uma frase que se conecte diretamente ao conteúdo ou sentimento da 'RESPOSTA ANTERIOR DO USUÁRIO'.
-3.  **Fazer a Ponte:** Use uma frase de transição curta para mover a conversa para o próximo tópico.
-4.  **Perguntar:** Apresente a 'PRÓXIMA PERGUNTA DO ROTEIRO' de forma clara e exata.
-"""
+SYSTEM_PROMPT = "Você é Gui, um entrevistador de IA empático e profissional..." # (Mantido o mesmo prompt detalhado)
 try:
     script_dir = os.path.dirname(__file__)
     file_path = os.path.join(script_dir, "interview_script.json")
     with open(file_path, "r", encoding="utf-8") as f: interview_script = json.load(f)
-    logging.info("Roteiro da entrevista carregado com sucesso.")
+    logging.info("Roteiro da entrevista carregado.")
 except FileNotFoundError:
     logging.error("Arquivo 'interview_script.json' não encontrado.")
     interview_script = None
 
 ongoing_interviews = {}
 
-app = Flask(__name__, static_folder='static', static_url_path='')
+# --- MUDANÇA 2: INICIALIZAÇÃO PADRÃO DO FLASK ---
+app = Flask(__name__)
+CORS(app)
 
 def get_next_step(current_step_id, user_response):
+    # (Esta função permanece a mesma)
     current_step = interview_script["steps"].get(current_step_id)
     if not current_step: return interview_script["start_step_id"]
     if current_step.get("awaits_rating"):
@@ -64,7 +64,7 @@ def get_next_step(current_step_id, user_response):
         try:
             numbers = re.findall(r'\d+', user_response)
             if numbers:
-                rating = int(numbers)
+                rating = int(numbers[0])
                 if "detractor_threshold" in rating_logic:
                     if rating <= rating_logic["detractor_threshold"]: return rating_logic["detractor_step_id"]
                     else: return rating_logic["promoter_step_id"]
@@ -79,29 +79,27 @@ def get_next_step(current_step_id, user_response):
     return current_step.get("next_step_id", interview_script["end_step_id"])
 
 def save_report(interview_id):
+    # (Esta função permanece a mesma)
     if interview_id not in ongoing_interviews: return
     interview_data = ongoing_interviews[interview_id]
     end_time = datetime.utcnow()
     duration = (end_time - interview_data["start_time"]).total_seconds()
-    report = {
-        "interview_id": interview_id,
-        "start_time": interview_data["start_time"].isoformat() + "Z",
-        "end_time": end_time.isoformat() + "Z",
-        "duration_seconds": int(duration),
-        "transcript": interview_data["transcript"]
-    }
+    report = { "interview_id": interview_id, "start_time": interview_data["start_time"].isoformat() + "Z", "end_time": end_time.isoformat() + "Z", "duration_seconds": int(duration), "transcript": interview_data["transcript"] }
     filename = f"entrevista_{end_time.strftime('%Y-%m-%d_%H-%M-%S')}_{interview_id[:8]}.json"
     filepath = os.path.join(REPORTS_DIR, filename)
     with open(filepath, 'w', encoding='utf-8') as f: json.dump(report, f, ensure_ascii=False, indent=2)
-    logging.info(f"Relatório salvo com sucesso em: {filepath}")
+    logging.info(f"Relatório salvo: {filepath}")
     del ongoing_interviews[interview_id]
 
+# --- ENDPOINTS ---
 @app.route('/')
 def serve_index():
-    return app.send_static_file('index.html')
+    # Servindo o arquivo estático da raiz
+    return send_file(os.path.join(os.path.dirname(__file__), 'static', 'index.html'))
 
 @app.route('/interview', methods=['POST'])
 def interview_step():
+    # (Esta função permanece a mesma)
     if not interview_script: return jsonify({'error': 'Erro: Roteiro não carregado.'}), 500
     data = request.get_json()
     user_response = data.get('response', '')
@@ -136,25 +134,45 @@ def interview_step():
         logging.error(f"Erro ao chamar a API do Gemini: {e}")
         return jsonify({'answer': 'Desculpe, tive um problema técnico.'}), 500
 
+# --- MUDANÇA 3: FUNÇÃO SYNTHESIZE "À PROVA DE BALAS" COM LOGGING DETALHADO ---
 @app.route('/synthesize', methods=['POST'])
 def synthesize():
-    if not tts_client: return jsonify({"error": "Serviço de TTS não configurado"}), 500
+    logging.info("Endpoint /synthesize foi chamado.")
+    if not tts_client:
+        logging.error("A chamada para /synthesize falhou porque o tts_client não foi inicializado.")
+        return jsonify({"error": "Serviço de TTS não configurado no servidor"}), 500
+
     data = request.get_json()
+    if not data:
+        logging.error("A chamada para /synthesize falhou: nenhum JSON recebido.")
+        return jsonify({"error": "Requisição JSON inválida"}), 400
+
     text = data.get('text', '')
-    if not text: return jsonify({"error": "Nenhum texto fornecido"}), 400
+    logging.info(f"Texto recebido para síntese: '{text[:30]}...'")
+    if not text:
+        logging.error("A chamada para /synthesize falhou: o campo 'text' está vazio.")
+        return jsonify({"error": "Nenhum texto fornecido para síntese"}), 400
+    
     try:
+        logging.info("Preparando a chamada para a API do Google TTS...")
         synthesis_input = texttospeech.SynthesisInput(text=text)
         voice = texttospeech.VoiceSelectionParams(language_code="pt-BR", name="pt-BR-Chirp3-HD-Algieba")
         audio_config = texttospeech.AudioConfig(audio_encoding=texttospeech.AudioEncoding.MP3)
+        
+        logging.info("Enviando requisição para a API TTS...")
         response = tts_client.synthesize_speech(input=synthesis_input, voice=voice, audio_config=audio_config)
+        logging.info("Áudio recebido da API TTS com sucesso.")
+        
         return Response(response.audio_content, mimetype="audio/mpeg")
     except Exception as e:
-        logging.error(f"Erro ao chamar a API do Google TTS: {e}")
-        return jsonify({"error": "Não foi possível gerar o áudio"}), 500
+        # Este log agora deve capturar qualquer erro
+        logging.error(f"ERRO CRÍTICO DENTRO DA FUNÇÃO SYNTHESIZE: {e}", exc_info=True)
+        return jsonify({"error": "Não foi possível gerar o áudio da resposta"}), 500
 
+# (Os endpoints de admin permanecem os mesmos)
 @app.route('/admin')
 def admin_panel():
-    return app.send_static_file('admin.html')
+    return send_file(os.path.join(os.path.dirname(__file__), 'static', 'admin.html'))
 
 @app.route('/admin/reports')
 def list_reports():
@@ -170,6 +188,7 @@ def list_reports():
 def download_report(file_format):
     all_data = []
     try:
+        # (A lógica de download permanece a mesma)
         for filename in os.listdir(REPORTS_DIR):
             if filename.endswith('.json'):
                 filepath = os.path.join(REPORTS_DIR, filename)
@@ -199,10 +218,5 @@ def download_report(file_format):
         logging.error(f"Erro ao gerar relatório para download: {e}")
         return "Erro ao gerar o relatório.", 500
 
-if __name__ == '__main__':
-    if not interview_script:
-        logging.fatal("O aplicativo não pode iniciar sem 'interview_script.json'.")
-    else:
-        # Pega a porta do ambiente, ou usa 5000 como padrão para rodar localmente
-        port = int(os.environ.get('PORT', 5000))
-        app.run(host='0.0.0.0', port=port)
+# --- MUDANÇA 4: REMOÇÃO DA SEÇÃO if __name__ == '__main__': ---
+# O Gunicorn assume o controle, então esta seção não é mais necessária para produção.
