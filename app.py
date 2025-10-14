@@ -15,15 +15,13 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # --- CONFIGURAÇÕES E INICIALIZAÇÃO ---
-ADMIN_PASSWORD = "SENHA_ADMIN" # IMPORTANTE: Mude esta senha!
+ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "SENHA_ADMIN") # Pega a senha do Render, ou usa um padrão
 REPORTS_DIR = "relatorios"
 
-# Cria a pasta de relatórios se ela não existir
 if not os.path.exists(REPORTS_DIR):
     os.makedirs(REPORTS_DIR)
 
 # --- INICIALIZAÇÃO DOS SERVIÇOS GOOGLE ---
-# (O resto da inicialização permanece o mesmo)
 google_api_key = os.getenv("GOOGLE_API_KEY")
 if not google_api_key: raise ValueError("Chave da API do Google não encontrada.")
 genai.configure(api_key=google_api_key)
@@ -54,52 +52,37 @@ except FileNotFoundError:
     logging.error("Arquivo 'interview_script.json' não encontrado.")
     interview_script = None
 
-# --- MUDANÇA 1: ARMAZENAMENTO EM MEMÓRIA DAS ENTREVISTAS ---
 ongoing_interviews = {}
 
-# --- CONFIGURAÇÃO DO FLASK ---
 app = Flask(__name__, static_folder='static', static_url_path='')
 
 def get_next_step(current_step_id, user_response):
     current_step = interview_script["steps"].get(current_step_id)
     if not current_step: return interview_script["start_step_id"]
-    
-    # Lógica para perguntas de escala (rating)
     if current_step.get("awaits_rating"):
         rating_logic = current_step.get("rating_logic", {})
         try:
-            # Tenta extrair o primeiro número da resposta
             numbers = re.findall(r'\d+', user_response)
             if numbers:
-                rating = int(numbers[0])
-                if "detractor_threshold" in rating_logic: # Lógica NPS
-                    if rating <= rating_logic["detractor_threshold"]:
-                        return rating_logic["detractor_step_id"]
-                    else:
-                        return rating_logic["promoter_step_id"]
-                elif "threshold" in rating_logic: # Lógica de satisfação
-                    if rating <= rating_logic["threshold"]:
-                        return rating_logic["follow_up_step_id"]
-        except (ValueError, IndexError):
-            pass # Se não for um número, segue o fluxo normal
-    
-    # Lógica condicional por palavras-chave
+                rating = int(numbers)
+                if "detractor_threshold" in rating_logic:
+                    if rating <= rating_logic["detractor_threshold"]: return rating_logic["detractor_step_id"]
+                    else: return rating_logic["promoter_step_id"]
+                elif "threshold" in rating_logic:
+                    if rating <= rating_logic["threshold"]: return rating_logic["follow_up_step_id"]
+        except (ValueError, IndexError): pass
     response_lower = user_response.lower()
     if "conditional_logic" in current_step:
         for condition in current_step["conditional_logic"]:
             if any(keyword in response_lower for keyword in condition["keywords"]):
                 return condition["next_step_id"]
-    
     return current_step.get("next_step_id", interview_script["end_step_id"])
 
-# --- MUDANÇA 2: FUNÇÃO PARA SALVAR O RELATÓRIO FINAL ---
 def save_report(interview_id):
     if interview_id not in ongoing_interviews: return
-
     interview_data = ongoing_interviews[interview_id]
     end_time = datetime.utcnow()
     duration = (end_time - interview_data["start_time"]).total_seconds()
-
     report = {
         "interview_id": interview_id,
         "start_time": interview_data["start_time"].isoformat() + "Z",
@@ -107,17 +90,12 @@ def save_report(interview_id):
         "duration_seconds": int(duration),
         "transcript": interview_data["transcript"]
     }
-    
     filename = f"entrevista_{end_time.strftime('%Y-%m-%d_%H-%M-%S')}_{interview_id[:8]}.json"
     filepath = os.path.join(REPORTS_DIR, filename)
-
-    with open(filepath, 'w', encoding='utf-8') as f:
-        json.dump(report, f, ensure_ascii=False, indent=2)
-    
+    with open(filepath, 'w', encoding='utf-8') as f: json.dump(report, f, ensure_ascii=False, indent=2)
     logging.info(f"Relatório salvo com sucesso em: {filepath}")
-    del ongoing_interviews[interview_id] # Limpa da memória
+    del ongoing_interviews[interview_id]
 
-# --- ENDPOINTS ---
 @app.route('/')
 def serve_index():
     return app.send_static_file('index.html')
@@ -125,39 +103,22 @@ def serve_index():
 @app.route('/interview', methods=['POST'])
 def interview_step():
     if not interview_script: return jsonify({'error': 'Erro: Roteiro não carregado.'}), 500
-    
     data = request.get_json()
     user_response = data.get('response', '')
     current_step_id = data.get('current_step_id', interview_script["start_step_id"])
     chat_history = data.get('history', [])
     interview_id = data.get('interview_id')
-
-    # --- MUDANÇA 3: LÓGICA DE CAPTURA DE DADOS ---
     if not interview_id:
         interview_id = str(uuid.uuid4())
-        ongoing_interviews[interview_id] = {
-            "start_time": datetime.utcnow(),
-            "transcript": {},
-            "last_question": None,
-            "last_topic": None
-        }
-    
+        ongoing_interviews[interview_id] = {"start_time": datetime.utcnow(), "transcript": {}, "last_question": None, "last_topic": None}
     if interview_id in ongoing_interviews and user_response:
         session = ongoing_interviews[interview_id]
         topic = session["last_topic"]
         if topic:
-            if topic not in session["transcript"]:
-                session["transcript"][topic] = []
-            session["transcript"][topic].append({
-                "question": session["last_question"],
-                "answer": user_response
-            })
-    
-    # Determina o próximo passo
+            if topic not in session["transcript"]: session["transcript"][topic] = []
+            session["transcript"][topic].append({"question": session["last_question"], "answer": user_response})
     next_step_id = get_next_step(current_step_id, user_response)
     next_step_data = interview_script["steps"].get(next_step_id)
-
-    # Gera a resposta do Gui
     next_question_to_ask = next_step_data["question_text"]
     prompt_for_gemini = (f"RESPOSTA ANTERIOR DO USUÁRIO: \"{user_response}\"\n\nPRÓXIMA PERGUNTA DO ROTEIRO: \"{next_question_to_ask}\"\n\nSua tarefa: Como Gui, gere a próxima resposta.")
     try:
@@ -166,15 +127,10 @@ def interview_step():
         convo = generation_model.start_chat(history=history_for_gemini)
         convo.send_message(prompt_for_gemini)
         gui_response = convo.last.text
-
         if interview_id in ongoing_interviews:
             ongoing_interviews[interview_id]["last_question"] = gui_response
             ongoing_interviews[interview_id]["last_topic"] = next_step_data.get("topic")
-
-        # Se for o fim, salva o relatório
-        if next_step_data.get("is_final", False):
-            save_report(interview_id)
-
+        if next_step_data.get("is_final", False): save_report(interview_id)
         return jsonify({'answer': gui_response, 'next_step_id': next_step_id, 'interview_id': interview_id})
     except Exception as e:
         logging.error(f"Erro ao chamar a API do Gemini: {e}")
@@ -182,7 +138,6 @@ def interview_step():
 
 @app.route('/synthesize', methods=['POST'])
 def synthesize():
-    # Esta função permanece igual
     if not tts_client: return jsonify({"error": "Serviço de TTS não configurado"}), 500
     data = request.get_json()
     text = data.get('text', '')
@@ -197,7 +152,6 @@ def synthesize():
         logging.error(f"Erro ao chamar a API do Google TTS: {e}")
         return jsonify({"error": "Não foi possível gerar o áudio"}), 500
 
-# --- MUDANÇA 4: NOVOS ENDPOINTS DE ADMINISTRAÇÃO ---
 @app.route('/admin')
 def admin_panel():
     return app.send_static_file('admin.html')
@@ -205,15 +159,8 @@ def admin_panel():
 @app.route('/admin/reports')
 def list_reports():
     try:
-        # Simples proteção por senha via cabeçalho
-        auth = request.headers.get("Authorization")
-        if auth != f"Bearer {ADMIN_PASSWORD}":
-             # O front-end vai tratar a senha, mas adicionamos uma camada extra
-             # return jsonify({"error": "Não autorizado"}), 401
-             pass # Simplificando para o prompt do JS
-
         files = [f for f in os.listdir(REPORTS_DIR) if f.endswith('.json')]
-        files.sort(reverse=True) # Mostra os mais recentes primeiro
+        files.sort(reverse=True)
         return jsonify({"reports": files})
     except Exception as e:
         logging.error(f"Erro ao listar relatórios: {e}")
@@ -230,21 +177,10 @@ def download_report(file_format):
                     report = json.load(f)
                     for topic, qas in report.get("transcript", {}).items():
                         for qa in qas:
-                            all_data.append({
-                                "interview_id": report.get("interview_id", ""),
-                                "start_time": report.get("start_time", ""),
-                                "end_time": report.get("end_time", ""),
-                                "topic": topic,
-                                "question": qa.get("question", ""),
-                                "answer": qa.get("answer", "")
-                            })
-        
-        if not all_data:
-            return "Nenhum dado encontrado para gerar o relatório.", 404
-
+                            all_data.append({"interview_id": report.get("interview_id", ""), "start_time": report.get("start_time", ""), "end_time": report.get("end_time", ""),"topic": topic, "question": qa.get("question", ""), "answer": qa.get("answer", "")})
+        if not all_data: return "Nenhum dado encontrado para gerar o relatório.", 404
         df = pd.DataFrame(all_data)
         output = BytesIO()
-
         if file_format == 'csv':
             df.to_csv(output, index=False, encoding='utf-8-sig')
             mimetype = 'text/csv'
@@ -252,15 +188,13 @@ def download_report(file_format):
         elif file_format == 'xls':
             writer = pd.ExcelWriter(output, engine='openpyxl')
             df.to_excel(writer, index=False, sheet_name='Entrevistas')
-            writer.close() # O close() foi substituído por save() que foi depreciado
+            writer.close()
             mimetype = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
             filename = 'consolidated_report.xlsx'
         else:
             return "Formato de arquivo não suportado.", 400
-
         output.seek(0)
         return send_file(output, as_attachment=True, download_name=filename, mimetype=mimetype)
-
     except Exception as e:
         logging.error(f"Erro ao gerar relatório para download: {e}")
         return "Erro ao gerar o relatório.", 500
@@ -269,5 +203,4 @@ if __name__ == '__main__':
     if not interview_script:
         logging.fatal("O aplicativo não pode iniciar sem 'interview_script.json'.")
     else:
-        app.run(host='0.0.0.0', port=5000)```
-
+        app.run(host='0.0.0.0', port=5000)
