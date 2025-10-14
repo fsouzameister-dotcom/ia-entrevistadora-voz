@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Painel de Relatórios - Gui</title>
+    <style>
+        body { font-family: sans-serif; background-color: #f4f4f9; margin: 0; padding: 20px; }
+        .container { max-width: 800px; margin: auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        h1 { color: #333; }
+        .button-group { margin-bottom: 20px; }
+        .button { background-color: #007bff; color: white; padding: 10px 15px; text-decoration: none; border-radius: 5px; margin-right: 10px; font-size: 0.9em; }
+        .button.excel { background-color: #28a745; }
+        #report-list { list-style-type: none; padding: 0; }
+        #report-list li { background: #eee; margin-bottom: 5px; padding: 10px; border-radius: 4px; font-family: monospace; font-size: 0.9em; }
+        .hidden { display: none; }
+        #login-screen, #main-content { transition: opacity 0.5s; }
+        #password-input { padding: 8px; font-size: 1em; margin-right: 10px; }
+    </style>
+</head>
+<body>
+    <div class="container" id="login-screen">
+        <h1>Acesso ao Painel</h1>
+        <p>Por favor, insira a senha de administrador para continuar.</p>
+        <input type="password" id="password-input" placeholder="Senha">
+        <button id="login-btn" class="button">Entrar</button>
+        <p id="error-message" style="color: red;" class="hidden">Senha incorreta.</p>
+    </div>
+
+    <div class="container hidden" id="main-content">
+        <h1>Painel de Relatórios da Pesquisa</h1>
+        <div class="button-group">
+            <a href="/admin/download/csv" class="button">Baixar Relatório Consolidado (CSV)</a>
+            <a href="/admin/download/xls" class="button excel">Baixar Relatório Consolidado (XLS)</a>
+        </div>
+        <h2>Entrevistas Concluídas</h2>
+        <ul id="report-list">
+            <li>Carregando relatórios...</li>
+        </ul>
+    </div>
+
+<script>
+    document.addEventListener('DOMContentLoaded', () => {
+        const loginScreen = document.getElementById('login-screen');
+        const mainContent = document.getElementById('main-content');
+        const passwordInput = document.getElementById('password-input');
+        const loginBtn = document.getElementById('login-btn');
+        const errorMessage = document.getElementById('error-message');
+        const reportList = document.getElementById('report-list');
+        
+        // Esta senha deve ser a mesma definida no seu app.py e no Render
+        const ADMIN_PASSWORD = "SENHA_ADMIN";
+
+        function showMainContent() {
+            loginScreen.style.opacity = '0';
+            setTimeout(() => {
+                loginScreen.classList.add('hidden');
+                mainContent.classList.remove('hidden');
+                mainContent.style.opacity = '1';
+                fetchReports();
+            }, 500);
+        }
+
+        function handleLogin() {
+            if (passwordInput.value === ADMIN_PASSWORD) {
+                showMainContent();
+            } else {
+                errorMessage.classList.remove('hidden');
+            }
+        }
+
+        loginBtn.addEventListener('click', handleLogin);
+        passwordInput.addEventListener('keydown', (event) => {
+            if (e
