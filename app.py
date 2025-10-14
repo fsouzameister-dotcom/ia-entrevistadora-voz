@@ -7,6 +7,7 @@ from google.cloud import texttospeech
 from flask import Flask, request, jsonify, Response
 from flask_cors import CORS
 
+# --- CONFIGURAções E CARREGAMENTO INICIAL ---
 load_dotenv()
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -26,20 +27,36 @@ except Exception as e:
     logging.warning(f"Não foi possível inicializar o cliente Google TTS: {e}")
     tts_client = None
 
-# --- PERSONA E ROTEIRO DA IA ---
+# --- PERSONA E ROTEIRO DA IA (COM HUMANIZAÇÃO) ---
 SYSTEM_PROMPT = """
-Você é "Gui", um entrevistador de IA especializado em pesquisa de mercado. Sua personalidade é calorosa, curiosa e empática.
-Seu objetivo é fazer a conversa fluir de forma natural. Siga estas diretrizes:
-1.  Crie transições suaves, conectando a próxima pergunta com a resposta anterior do usuário.
-2.  Seja conciso.
-3.  Mantenha uma persona profissional e amigável.
-4.  Foque-se estritamente na 'PRÓXIMA PERGUNTA DO ROTEIRO'.
+Você é "Gui", um entrevistador de IA de elite. Sua personalidade é calorosa, curiosa, empática e profissional. Seu objetivo principal é conduzir uma pesquisa que se sinta como uma conversa humana genuína.
+
+Para cada interação, siga estritamente este fluxo de 4 passos:
+
+1.  **Agradecer/Reconhecer:** Inicie sua resposta com uma frase curta de reconhecimento.
+    *   Exemplos: "Entendido.", "Certo.", "Obrigado por compartilhar isso.", "Anotado."
+
+2.  **Refletir/Empatizar (O PASSO MAIS IMPORTANTE):** Faça um breve comentário de uma frase que se conecte diretamente ao conteúdo ou sentimento da 'RESPOSTA ANTERIOR DO USUÁRIO'. Mostre que você entendeu não apenas as palavras, mas o significado por trás delas.
+    *   Se a resposta for negativa (ex: "os equipamentos estão sempre quebrados"): "Nossa, isso deve ser muito frustrante e pode até atrapalhar a consistência dos treinos."
+    *   Se a resposta for positiva (ex: "os instrutores são muito atenciosos"): "Que ótimo ouvir isso! Ter um bom suporte profissional faz toda a diferença na motivação, não é mesmo?"
+    *   Se a resposta for neutra (ex: "a iluminação é normal"): "Ok, um aspecto funcional que cumpre seu papel, sem grandes destaques."
+
+3.  **Fazer a Ponte:** Use uma frase de transição curta para mover a conversa para o próximo tópico.
+    *   Exemplos: "Mudando um pouco de assunto...", "Falando agora sobre...", "Isso me leva à próxima questão..."
+
+4.  **Perguntar:** Apresente a 'PRÓXIMA PERGUNTA DO ROTEIRO' de forma clara. Você deve usar a pergunta do roteiro exatamente como fornecida.
+
+**Exemplo de Execução Perfeita:**
+- RESPOSTA ANTERIOR DO USUÁRIO: "A academia é ok, mas os vestiários são muito sujos, eu evito usar."
+- PRÓXIMA PERGUNTA DO ROTEIRO: "E sobre os equipamentos, você encontra a variedade que precisa para os seus treinos?"
+- SUA RESPOSTA IDEAL GERADA: "Entendido. Higiene no vestiário é fundamental para o conforto, imagino que seja uma situação bem desagradável. Mudando um pouco o foco agora, sobre os equipamentos, você encontra a variedade que precisa para os seus treinos?"
+
+Sua tarefa é usar o contexto da resposta do usuário e a próxima pergunta do roteiro para gerar uma resposta que siga este fluxo de 4 passos, tornando a entrevista o mais humana possível.
 """
 
-# --- AQUI ESTÁ A CORREÇÃO FINAL ---
 # Construindo um caminho absoluto para o JSON para garantir que o servidor sempre o encontre.
 try:
-    script_dir = os.path.dirname(__file__) # O diretório onde este script (app.py) está
+    script_dir = os.path.dirname(__file__)
     file_path = os.path.join(script_dir, "interview_script.json")
     with open(file_path, "r", encoding="utf-8") as f:
         interview_script = json.load(f)
@@ -92,7 +109,7 @@ def interview_step():
         "Sua tarefa: Como Gui, gere a próxima resposta da entrevista seguindo seu prompt de sistema."
     )
     try:
-        history_for_gemini = [{'role': 'user', 'parts': [SYSTEM_PROMPT]}, {'role': 'model', 'parts': ["Entendido."]}]
+        history_for_gemini = [{'role': 'user', 'parts': [SYSTEM_PROMPT]}, {'role': 'model', 'parts': ["Entendido. Estou pronto para começar."]}]
         history_for_gemini.extend(chat_history)
         convo = generation_model.start_chat(history=history_for_gemini)
         convo.send_message(prompt_for_gemini)

@@ -37,73 +37,34 @@
         }
         
         /* TELA INICIAL */
-        #start-screen h1 {
-            font-weight: 500;
-            font-size: 2.5em;
-            margin-bottom: 10px;
-        }
-        #start-screen p {
-            font-size: 1.2em;
-            margin-bottom: 40px;
-            font-weight: 300;
-        }
+        #start-screen h1 { font-weight: 500; font-size: 2.5em; margin-bottom: 10px; }
+        #start-screen p { font-size: 1.2em; margin-bottom: 40px; font-weight: 300; }
         #start-btn {
             background: linear-gradient(45deg, #3d8bfd, #0d6efd);
-            color: white;
-            border: none;
-            border-radius: 50px;
-            padding: 15px 30px;
-            font-size: 1.2em;
-            font-weight: 500;
-            cursor: pointer;
-            transition: all 0.3s ease;
+            color: white; border: none; border-radius: 50px; padding: 15px 30px;
+            font-size: 1.2em; font-weight: 500; cursor: pointer; transition: all 0.3s ease;
             box-shadow: 0 4px 15px rgba(0, 123, 255, 0.4);
         }
-        #start-btn:hover {
-            transform: translateY(-3px);
-            box-shadow: 0 6px 20px rgba(0, 123, 255, 0.5);
-        }
+        #start-btn:hover { transform: translateY(-3px); box-shadow: 0 6px 20px rgba(0, 123, 255, 0.5); }
 
         /* TELA DA ENTREVISTA */
-        #status {
-            font-size: 1.6em;
-            height: 60px;
-            margin-bottom: 20px;
-            font-weight: 400;
-        }
+        #status { font-size: 1.6em; height: 60px; margin-bottom: 20px; font-weight: 400; }
         #mic-btn {
-            background-color: var(--primary-color);
-            border: none;
-            border-radius: 50%;
-            width: 100px;
-            height: 100px;
-            cursor: pointer;
-            transition: all 0.2s ease-in-out;
-            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            margin: 20px auto;
+            background-color: var(--primary-color); border: none; border-radius: 50%;
+            width: 100px; height: 100px; cursor: pointer; transition: all 0.2s ease-in-out;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2); display: flex; justify-content: center;
+            align-items: center; margin: 20px auto;
         }
         #mic-btn:hover:not(:disabled) { transform: scale(1.1); }
         #mic-btn:disabled { background-color: #a0a0a0; cursor: not-allowed; }
-        #mic-btn.listening {
-            background-color: var(--error-color);
-            animation: pulse 1.5s infinite;
-        }
+        #mic-btn.listening { background-color: var(--error-color); animation: pulse 1.5s infinite; }
         #mic-icon { width: 50px; height: 50px; fill: white; }
         @keyframes pulse {
             0% { box-shadow: 0 0 0 0 rgba(217, 83, 79, 0.7); }
             70% { box-shadow: 0 0 0 25px rgba(217, 83, 79, 0); }
             100% { box-shadow: 0 0 0 0 rgba(217, 83, 79, 0); }
         }
-        #transcript {
-            margin-top: 20px;
-            font-size: 1.1em;
-            color: #777;
-            height: 30px;
-            font-style: italic;
-        }
+        #transcript { margin-top: 20px; font-size: 1.1em; color: #777; height: 30px; font-style: italic; }
         .hidden { display: none; }
     </style>
 </head>
@@ -125,7 +86,6 @@
 </div>
 
 <script>
-    // Envolvemos todo o código em um evento que espera o HTML carregar completamente.
     document.addEventListener('DOMContentLoaded', () => {
         const startScreen = document.getElementById('start-screen');
         const interviewScreen = document.getElementById('interview-screen');
@@ -139,8 +99,10 @@
         if (SpeechRecognition) {
             recognition = new SpeechRecognition();
             recognition.lang = 'pt-BR';
-            recognition.continuous = false;
-            recognition.interimResults = false;
+            // --- MUDANÇA 1: MODO CONTÍNUO ---
+            // Agora a escuta não para sozinha nas pausas.
+            recognition.continuous = true; 
+            recognition.interimResults = true; // Mostra resultados parciais
         } else {
             startScreen.innerHTML = "<h1>Erro</h1><p>Seu navegador não suporta a API de reconhecimento de voz. Tente usar o Google Chrome.</p>";
         }
@@ -148,9 +110,8 @@
         let currentStepId = "1";
         let chatHistory = [];
         let isListening = false;
-        
-        // --- AQUI ESTÁ A ATUALIZAÇÃO FINAL ---
-        // A URL agora aponta para o seu servidor no Render.
+        let finalTranscript = '';
+
         const API_URL = 'https://gui-entrevista-ia.onrender.com';
         const API_INTERVIEW_URL = `${API_URL}/interview`;
         const API_SYNTHESIZE_URL = `${API_URL}/synthesize`;
@@ -164,8 +125,8 @@
 
             audio.onended = () => {
                 if (currentStepId !== "END") {
-                    statusDiv.textContent = "Sua vez de falar...";
-                    startListening();
+                    statusDiv.textContent = "Clique no microfone para falar";
+                    micBtn.disabled = false;
                 } else {
                     statusDiv.textContent = "Entrevista concluída. Obrigado!";
                     micBtn.disabled = true;
@@ -177,7 +138,7 @@
         async function getAIResponse(userText = "") {
             statusDiv.textContent = "Gui está processando...";
             micBtn.disabled = true;
-            if (userText) transcriptDiv.textContent = `Você disse: "${userText}"`;
+            transcriptDiv.textContent = `Você disse: "${userText}"`;
             
             try {
                 const interviewResponse = await fetch(API_INTERVIEW_URL, {
@@ -211,37 +172,64 @@
         
         function startListening() {
             if (!isListening) {
-                isListening = true;
-                micBtn.disabled = false;
-                micBtn.classList.add('listening');
-                transcriptDiv.textContent = "";
+                finalTranscript = '';
                 recognition.start();
+                isListening = true;
+                micBtn.classList.add('listening');
+                statusDiv.textContent = "Ouvindo... Clique para parar.";
             }
         }
 
         function stopListening() {
             if (isListening) {
+                recognition.stop();
                 isListening = false;
                 micBtn.classList.remove('listening');
-                recognition.stop();
             }
         }
         
+        // --- MUDANÇA 2: NOVA LÓGICA DE TRANSCRIÇÃO ---
+        // Este evento agora acumula os trechos da fala.
         recognition.onresult = (event) => {
-            const userText = event.results[0][0].transcript;
-            stopListening();
-            getAIResponse(userText);
+            let interimTranscript = '';
+            for (let i = event.resultIndex; i < event.results.length; ++i) {
+                if (event.results[i].isFinal) {
+                    finalTranscript += event.results[i][0].transcript;
+                } else {
+                    interimTranscript += event.results[i][0].transcript;
+                }
+            }
+            transcriptDiv.textContent = finalTranscript + interimTranscript;
+        };
+
+        // Quando a escuta é parada (pelo usuário ou erro)
+        recognition.onend = () => {
+             if (isListening) { // Apenas se o usuário não parou manualmente
+                stopListening();
+                if (finalTranscript.trim()) {
+                    getAIResponse(finalTranscript);
+                } else {
+                    statusDiv.textContent = "Não ouvi nada. Clique para tentar de novo.";
+                    micBtn.disabled = false;
+                }
+            }
         };
 
         recognition.onerror = (event) => {
             console.error("Erro no reconhecimento de voz:", event.error);
-            statusDiv.textContent = "Não consegui te ouvir. Tente novamente.";
+            statusDiv.textContent = "Ocorreu um erro com o microfone.";
             stopListening();
         };
 
+        // --- MUDANÇA 3: LÓGICA DO BOTÃO ALTERNADOR ---
+        // O botão agora funciona como um interruptor (liga/desliga).
         micBtn.addEventListener('click', () => {
-            if (isListening) stopListening();
-            else startListening();
+            if (isListening) {
+                stopListening();
+                // A chamada para getAIResponse agora acontece no evento 'onend'
+            } else {
+                startListening();
+            }
         });
         
         startBtn.addEventListener('click', () => {
