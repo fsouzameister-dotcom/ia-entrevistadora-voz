@@ -99,10 +99,8 @@
         if (SpeechRecognition) {
             recognition = new SpeechRecognition();
             recognition.lang = 'pt-BR';
-            // --- MUDANÇA 1: MODO CONTÍNUO ---
-            // Agora a escuta não para sozinha nas pausas.
-            recognition.continuous = true; 
-            recognition.interimResults = true; // Mostra resultados parciais
+            recognition.continuous = true;
+            recognition.interimResults = true;
         } else {
             startScreen.innerHTML = "<h1>Erro</h1><p>Seu navegador não suporta a API de reconhecimento de voz. Tente usar o Google Chrome.</p>";
         }
@@ -138,7 +136,7 @@
         async function getAIResponse(userText = "") {
             statusDiv.textContent = "Gui está processando...";
             micBtn.disabled = true;
-            transcriptDiv.textContent = `Você disse: "${userText}"`;
+            transcriptDiv.textContent = userText ? `Você disse: "${userText}"` : "";
             
             try {
                 const interviewResponse = await fetch(API_INTERVIEW_URL, {
@@ -171,28 +169,30 @@
         }
         
         function startListening() {
-            if (!isListening) {
-                finalTranscript = '';
-                recognition.start();
-                isListening = true;
-                micBtn.classList.add('listening');
-                statusDiv.textContent = "Ouvindo... Clique para parar.";
-            }
+            if (isListening || !recognition) return;
+            finalTranscript = '';
+            recognition.start();
         }
 
         function stopListening() {
-            if (isListening) {
-                recognition.stop();
-                isListening = false;
-                micBtn.classList.remove('listening');
-            }
+            if (!isListening || !recognition) return;
+            recognition.stop();
         }
         
-        // --- MUDANÇA 2: NOVA LÓGICA DE TRANSCRIÇÃO ---
-        // Este evento agora acumula os trechos da fala.
+        // --- LÓGICA CORRIGIDA ---
+
+        // Evento que dispara quando a gravação começa
+        recognition.onstart = () => {
+            isListening = true;
+            micBtn.classList.add('listening');
+            statusDiv.textContent = "Ouvindo... Clique para parar.";
+        };
+
+        // Evento que acumula os resultados da fala
         recognition.onresult = (event) => {
             let interimTranscript = '';
-            for (let i = event.resultIndex; i < event.results.length; ++i) {
+            finalTranscript = ''; // Resetamos aqui para pegar sempre a versão mais atual
+            for (let i = 0; i < event.results.length; ++i) {
                 if (event.results[i].isFinal) {
                     finalTranscript += event.results[i][0].transcript;
                 } else {
@@ -201,32 +201,33 @@
             }
             transcriptDiv.textContent = finalTranscript + interimTranscript;
         };
-
-        // Quando a escuta é parada (pelo usuário ou erro)
+        
+        // Evento que dispara quando a gravação termina (aqui está a mágica)
         recognition.onend = () => {
-             if (isListening) { // Apenas se o usuário não parou manualmente
-                stopListening();
-                if (finalTranscript.trim()) {
-                    getAIResponse(finalTranscript);
-                } else {
-                    statusDiv.textContent = "Não ouvi nada. Clique para tentar de novo.";
-                    micBtn.disabled = false;
-                }
+            if (!isListening) return; // Se já foi parado, não faz nada
+            
+            isListening = false;
+            micBtn.classList.remove('listening');
+            
+            if (finalTranscript.trim()) {
+                getAIResponse(finalTranscript);
+            } else {
+                statusDiv.textContent = "Não ouvi nada. Clique para tentar de novo.";
+                micBtn.disabled = false;
             }
         };
 
         recognition.onerror = (event) => {
             console.error("Erro no reconhecimento de voz:", event.error);
             statusDiv.textContent = "Ocorreu um erro com o microfone.";
-            stopListening();
+            isListening = false;
+            micBtn.classList.remove('listening');
         };
 
-        // --- MUDANÇA 3: LÓGICA DO BOTÃO ALTERNADOR ---
-        // O botão agora funciona como um interruptor (liga/desliga).
+        // O botão agora simplesmente alterna entre iniciar e parar
         micBtn.addEventListener('click', () => {
             if (isListening) {
                 stopListening();
-                // A chamada para getAIResponse agora acontece no evento 'onend'
             } else {
                 startListening();
             }
