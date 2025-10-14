@@ -6,6 +6,10 @@ __pycache__/
 .env
 credentials.json
 
+# --- MUDANÇA ---
+# Dados Coletados - Pasta de relatórios gerados pela aplicação
+relatorios/
+
 # Arquivos de Sistema
 *.pyc
 .DS_Store

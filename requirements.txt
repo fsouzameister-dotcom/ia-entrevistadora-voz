@@ -5,3 +5,6 @@ flask-cors
 python-dotenv
 numpy
 gunicorn
+pandas
+openpyxl
+

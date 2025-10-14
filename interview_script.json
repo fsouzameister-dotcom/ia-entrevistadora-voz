@@ -1,91 +1,234 @@
 {
-  "start_step_id": "1",
-  "end_step_id": "END",
+  "start_step_id": "s0_intro",
+  "end_step_id": "s16_end",
   "steps": {
-    "1": {
-      "question_text": "Olá! Meu nome é Gui e estou fazendo uma pesquisa rápida para entender melhor a experiência das pessoas em suas academias. Você teria alguns minutos para conversarmos?",
-      "next_step_id": "2"
+    "s0_intro": {
+      "question_text": "Olá! Meu nome é Gui. A Empresa Teste valoriza profundamente a parceria com sua empresa e nosso objetivo é estreitar cada vez mais nossos laços. Sua participação nesta breve pesquisa é essencial para orientar nossas decisões estratégicas. Podemos começar?",
+      "topic": "Abertura",
+      "next_step_id": "s1_q1"
     },
 
-    "2": {
-      "question_text": "Ótimo! Para começar, vamos falar sobre a estrutura da sua academia. Em relação à limpeza e organização dos espaços, qual é a sua opinião?",
-      "next_step_id": "2_2",
-      "conditional_logic": [
-        {
-          "keywords": ["sujeira", "bagunça", "imundo", "sujo", "desorganizada"],
-          "next_step_id": "2_1"
-        }
-      ]
+    "s1_q1": {
+      "question_text": "Excelente! Para começarmos, poderia me informar seu nome completo, por favor?",
+      "topic": "Perfil",
+      "next_step_id": "s1_q2"
     },
-    "2_1": {
-      "question_text": "Entendo. Você poderia me dar um exemplo de uma área ou situação que te chamou a atenção nesse sentido de limpeza ou organização?",
-      "next_step_id": "2_2"
+    "s1_q2": {
+      "question_text": "Obrigado. E qual é o seu cargo atual na empresa?",
+      "topic": "Perfil",
+      "next_step_id": "s1_q5"
     },
-    "2_2": {
-      "question_text": "Certo. E sobre o espaço e a lotação? Você sente que a academia é espaçosa o suficiente para treinar com conforto, mesmo nos horários de pico?",
-      "next_step_id": "2_4",
-      "conditional_logic": [
-        {
-          "keywords": ["lotada", "apertada", "cheia", "sem espaço", "muita gente"],
-          "next_step_id": "2_3"
-        }
-      ]
+    "s1_q5": {
+      "question_text": "Certo. Há quanto tempo, aproximadamente, sua empresa se relaciona com a Empresa Teste? Menos de um ano, entre 1 e 3 anos, entre 3 e 5 anos, ou mais de 5 anos?",
+      "topic": "Perfil",
+      "next_step_id": "s1_q6"
     },
-    "2_3": {
-      "question_text": "Isso da lotação é um ponto importante. Em quais horários ou áreas você mais sente esse impacto?",
-      "next_step_id": "2_4"
-    },
-    "2_4": {
-      "question_text": "Ok. E o que você me diz da iluminação e ventilação do ambiente? São adequadas?",
-      "next_step_id": "2_5"
-    },
-    "2_5": {
-      "question_text": "Para fechar este tópico da estrutura, como você avalia os vestiários e banheiros?",
-      "next_step_id": "3"
+    "s1_q6": {
+      "question_text": "Entendido. E qual é o principal segmento de atuação da sua empresa? Seria Alimentos, Cosméticos, Oleoquímicos ou outro?",
+      "topic": "Perfil",
+      "next_step_id": "s2_q7"
     },
 
-    "3": {
-      "question_text": "Entendido. Agora, sobre os equipamentos. Você costuma encontrar uma boa variedade de aparelhos para os seus objetivos?",
-      "next_step_id": "3_1"
+    "s2_q7": {
+      "question_text": "Agora, vamos para a parte central da nossa pesquisa. Pensando na sua experiência completa conosco, em uma escala de zero a dez, onde zero é 'de jeito nenhum' e dez é 'com certeza', qual seria a probabilidade de você nos recomendar como parceiros de negócio?",
+      "topic": "NPS",
+      "next_step_id": "s2_q8",
+      "awaits_rating": true,
+      "rating_logic": {
+        "detractor_threshold": 8,
+        "detractor_step_id": "s2_q9_detractor",
+        "promoter_step_id": "s2_q10_promoter"
+      }
     },
-    "3_1": {
-      "question_text": "E sobre a manutenção e conservação desses equipamentos? Eles costumam estar em bom estado de funcionamento?",
-      "next_step_id": "4",
-      "conditional_logic": [
-        {
-          "keywords": ["quebrado", "defeito", "manutenção", "estragado", "velho"],
-          "next_step_id": "3_2"
-        }
-      ]
+    "s2_q8": {
+      "question_text": "Agradeço pela sua nota. Poderia me contar qual foi o principal motivo que o levou a dar essa avaliação?",
+      "topic": "NPS",
+      "next_step_id": "s3_q11_1"
     },
-    "3_2": {
-      "question_text": "Isso é um ponto crítico. Você já precisou reportar algum equipamento com defeito? Como foi a experiência com a equipe?",
-      "next_step_id": "4"
+    "s2_q9_detractor": {
+      "question_text": "Entendido. Na sua visão, o que seria fundamental que a Empresa Teste mudasse para que sua avaliação pudesse ser um 9 ou 10 no futuro?",
+      "topic": "NPS",
+      "next_step_id": "s3_q11_1"
+    },
+    "s2_q10_promoter": {
+      "question_text": "Ficamos muito felizes com sua avaliação! Para nós, é muito importante saber o que mais valoriza em nossa parceria. O que devemos continuar fazendo para sempre merecer essa nota?",
+      "topic": "NPS",
+      "next_step_id": "s3_q11_1"
+    },
+
+    "s3_q11_1": {
+      "question_text": "Vamos avaliar agora alguns pontos da sua experiência. Em uma escala de 1, muito insatisfeito, a 7, muito satisfeito, como você avalia a qualidade e a confiabilidade de nossos produtos?",
+      "topic": "Experiência Geral",
+      "next_step_id": "s3_q11_2",
+      "awaits_rating": true,
+      "rating_logic": {
+        "threshold": 4,
+        "follow_up_step_id": "s3_q12_qualidade"
+      }
+    },
+    "s3_q12_qualidade": {
+      "question_text": "Agradeço a sinceridade. Poderia detalhar por que atribuiu essa nota à qualidade de nossos produtos?",
+      "topic": "Experiência Geral",
+      "next_step_id": "s3_q11_2"
+    },
+    "s3_q11_2": {
+      "question_text": "Usando a mesma escala de 1 a 7, como você classifica nosso conhecimento sobre a sua operação e o seu mercado de atuação?",
+      "topic": "Experiência Geral",
+      "next_step_id": "s3_q11_3",
+      "awaits_rating": true,
+      "rating_logic": { "threshold": 4, "follow_up_step_id": "s3_q12_conhecimento" }
+    },
+    "s3_q12_conhecimento": {
+      "question_text": "Entendido. O que faltou para que sua avaliação sobre nosso conhecimento de mercado fosse mais alta?",
+      "topic": "Experiência Geral",
+      "next_step_id": "s3_q11_3"
+    },
+    "s3_q11_3": {
+      "question_text": "Agora, sobre nossa comunicação, de 1 a 7, quão satisfeito você está com a transparência e a clareza das informações que compartilhamos?",
+      "topic": "Experiência Geral",
+      "next_step_id": "s4_q13"
     },
     
-    "4": {
-      "question_text": "Obrigado pelo feedback. Vamos falar sobre as pessoas. Como você descreve o suporte e a orientação dos instrutores durante o seu treino?",
-      "next_step_id": "4_1"
+    "s4_q13": {
+      "question_text": "Para entendermos como nos comunicamos, qual foi o principal canal que você usou para falar conosco nos últimos doze meses? Por exemplo, e-mail, telefone, WhatsApp, ou o executivo comercial?",
+      "topic": "Canais de Atendimento",
+      "next_step_id": "s4_q16"
     },
-    "4_1": {
-      "question_text": "E sobre o atendimento geral, da recepção aos outros funcionários, como você se sente tratado(a)?",
-      "next_step_id": "4_2"
+    "s4_q16": {
+      "question_text": "Pensando nesse e em outros canais que possa ter usado, qual deles se mostrou o mais eficiente para resolver suas questões, e por quê?",
+      "topic": "Canais de Atendimento",
+      "next_step_id": "s4_q17"
     },
-    "4_2": {
-      "question_text": "Sua academia oferece serviços extras que você valoriza, como avaliação física, aulas em grupo ou acompanhamento nutricional?",
-      "next_step_id": "5"
+    "s4_q17": {
+      "question_text": "E por outro lado, houve algum canal que você considerou menos eficiente? Se sim, qual foi e por que não funcionou tão bem?",
+      "topic": "Canais de Atendimento",
+      "next_step_id": "s5_q19"
     },
 
-    "5": {
-        "question_text": "Estamos quase no fim. Por último, sobre o ambiente geral e a motivação. Você sente que a sua academia promove um ambiente que te inspira a continuar treinando? É um lugar que você considera acolhedor e inclusivo?",
-        "next_step_id": "6"
+    "s5_q19": {
+      "question_text": "Considerando o retorno que você recebeu em suas solicitações, numa escala de 1 a 7, o nível de detalhe e a urgência da resposta atenderam às suas expectativas?",
+      "topic": "Retorno a Solicitações",
+      "next_step_id": "s6_q21",
+      "awaits_rating": true,
+      "rating_logic": { "threshold": 4, "follow_up_step_id": "s5_q20" }
     },
-    "6": {
-        "question_text": "Essas eram as minhas perguntas principais. Existe mais algum ponto, positivo ou negativo, que você acredita ser importante sobre a sua experiência?",
-        "next_step_id": "END"
+    "s5_q20": {
+      "question_text": "Entendido. Você poderia nos dar um exemplo recente onde o retorno não atendeu ao que era esperado?",
+      "topic": "Retorno a Solicitações",
+      "next_step_id": "s6_q21"
     },
-    "END": {
-      "question_text": "Agradeço imensamente pelo seu tempo e por compartilhar suas opiniões. Sua contribuição foi muito valiosa para a nossa pesquisa! Tenha um ótimo dia.",
+
+    "s6_q21": {
+      "question_text": "Agora, sobre solução de problemas. Nos últimos 12 meses, sua empresa precisou de algum suporte da Empresa Teste para resolver um problema ou desafio?",
+      "topic": "Solução de Problemas",
+      "next_step_id": "s7_q27",
+      "conditional_logic": [
+        {
+          "keywords": ["sim", "tivemos", "precisei", "aconteceu"],
+          "next_step_id": "s6_q23"
+        }
+      ]
+    },
+    "s6_q23": {
+      "question_text": "Lamento que tenha tido um problema. De 1 a 7, como você avalia a rapidez com que diagnosticamos a situação?",
+      "topic": "Solução de Problemas",
+      "next_step_id": "s6_q24"
+    },
+    "s6_q24": {
+      "question_text": "E sobre o plano de ação que propusemos, quão clara foi nossa comunicação, na mesma escala de 1 a 7?",
+      "topic": "Solução de Problemas",
+      "next_step_id": "s6_q25"
+    },
+    "s6_q25": {
+      "question_text": "Por fim, de 1 a 7, como você classifica o tempo que levamos para apresentar a solução definitiva?",
+      "topic": "Solução de Problemas",
+      "next_step_id": "s7_q27",
+      "awaits_rating": true,
+      "rating_logic": { "threshold": 4, "follow_up_step_id": "s6_q26" }
+    },
+    "s6_q26": {
+      "question_text": "Compreendo. Na sua opinião, o que mais atrasou ou dificultou o processo de solução? O que poderíamos ter feito diferente?",
+      "topic": "Solução de Problemas",
+      "next_step_id": "s7_q27"
+    },
+    
+    "s7_q27": {
+      "question_text": "Mudando para logística. De 1 a 7, como você avalia nossa pontualidade na entrega dos produtos em relação às datas que foram agendadas?",
+      "topic": "Pontualidade & Logística",
+      "next_step_id": "s8_q32",
+      "awaits_rating": true,
+      "rating_logic": { "threshold": 4, "follow_up_step_id": "s7_q28" }
+    },
+    "s7_q28": {
+      "question_text": "Entendido. Poderia me contar um pouco mais sobre esses atrasos? Onde ocorreram e qual foi o impacto para o seu processo?",
+      "topic": "Pontualidade & Logística",
+      "next_step_id": "s8_q32"
+    },
+    
+    "s8_q32": {
+      "question_text": "Agora sobre a qualidade do produto em si. De 1 a 7, como você classifica a conformidade e a performance dos produtos que recebeu?",
+      "topic": "Qualidade do Produto",
+      "next_step_id": "s9_q36"
+    },
+    
+    "s9_q36": {
+      "question_text": "Vamos falar sobre o alinhamento estratégico. Numa escala de 1 a 7, o quão bem você sente que a Empresa Teste compreende seus requisitos técnicos, regulatórios e de prazo?",
+      "topic": "Conhecimento da Operação",
+      "next_step_id": "s10_q38",
+      "awaits_rating": true,
+      "rating_logic": { "threshold": 4, "follow_up_step_id": "s9_q37" }
+    },
+    "s9_q37": {
+      "question_text": "Obrigado pelo feedback. Em que áreas você sente que nosso entendimento sobre sua operação poderia ser mais profundo?",
+      "topic": "Conhecimento da Operação",
+      "next_step_id": "s10_q38"
+    },
+
+    "s10_q38": {
+      "question_text": "De todos os aspectos da nossa parceria, como Qualidade, Preço, Inovação ou Pontualidade, quais são os dois ou três atributos que mais geram valor para o seu negócio?",
+      "topic": "O que mais importa",
+      "next_step_id": "s11_q40"
+    },
+    
+    "s11_q40": {
+      "question_text": "Pensando em inovação, de 1 a 7, qual sua expectativa em relação à Empresa Teste em trazer novidades em produtos, serviços e no atendimento?",
+      "topic": "Inovação & Tecnologia",
+      "next_step_id": "s12_q45",
+      "awaits_rating": true,
+      "rating_logic": { "threshold": 4, "follow_up_step_id": "s11_q41" }
+    },
+    "s11_q41": {
+      "question_text": "Interessante. Que tipo de inovação ou abordagem diferente você gostaria de ver da nossa parte?",
+      "topic": "Inovação & Tecnologia",
+      "next_step_id": "s12_q45"
+    },
+    
+    "s12_q45": {
+      "question_text": "Sobre sustentabilidade, de 1 a 7, como você avalia o compromisso da Empresa Teste com práticas de ESG e certificações internacionais?",
+      "topic": "Sustentabilidade / ESG",
+      "next_step_id": "s13_q47"
+    },
+    
+    "s13_q47": {
+      "question_text": "Comparando com outros fornecedores que você talvez conheça, você diria que a Empresa Teste está abaixo, igual, ou acima da média em termos de confiança e parceria?",
+      "topic": "Benchmarking",
+      "next_step_id": "s14_q48"
+    },
+
+    "s14_q48": {
+      "question_text": "Olhando para o futuro, qual é a sua principal expectativa para a nossa parceria nos próximos anos?",
+      "topic": "Expectativa Futura",
+      "next_step_id": "s15_q49"
+    },
+
+    "s15_q49": {
+      "question_text": "Para finalizar, se você pudesse mudar apenas uma coisa na Empresa Teste para tornar nossa parceria ainda mais forte, o que seria e por quê?",
+      "topic": "Melhoria Essencial",
+      "next_step_id": "s16_end"
+    },
+
+    "s16_end": {
+      "question_text": "Muito obrigado pela sua participação e pela sinceridade nas respostas. Elas serão levadas à nossa Diretoria e ajudarão a orientar melhorias concretas. Agradecemos imensamente o seu tempo!",
       "is_final": true
     }
   }
