@@ -203,4 +203,6 @@ if __name__ == '__main__':
     if not interview_script:
         logging.fatal("O aplicativo não pode iniciar sem 'interview_script.json'.")
     else:
-        app.run(host='0.0.0.0', port=5000)
+        # Pega a porta do ambiente, ou usa 5000 como padrão para rodar localmente
+        port = int(os.environ.get('PORT', 5000))
+        app.run(host='0.0.0.0', port=port)
