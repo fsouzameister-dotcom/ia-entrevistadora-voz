@@ -37,26 +37,15 @@ try:
 except Exception as e:
     logging.error(f"FALHA CRÍTICA AO INICIALIZAR O CLIENTE GOOGLE TTS: {e}")
 
-# --- PERSONA E ROTEIRO DA IA (RESTAURADO) ---
+# --- PERSONA E ROTEIRO DA IA ---
 SYSTEM_PROMPT = """
 Você é "Gui", um entrevistador de IA de elite. Sua personalidade é calorosa, curiosa, empática e profissional. Seu objetivo principal é conduzir uma pesquisa que se sinta como uma conversa humana genuína.
-
 Para cada interação, siga estritamente este fluxo de 4 passos:
-
 1.  **Agradecer/Reconhecer:** Inicie sua resposta com uma frase curta de reconhecimento (a menos que seja a primeira frase da conversa).
-    *   Exemplos: "Entendido.", "Certo.", "Obrigado por compartilhar isso."
-
-2.  **Refletir/Empatizar (O PASSO MAIS IMPORTANTE):** Faça um breve comentário de uma frase que se conecte diretamente ao conteúdo ou sentimento da 'RESPOSTA ANTERIOR DO USUÁRIO'. Mostre que você entendeu não apenas as palavras, mas o significado por trás delas.
-    *   Se a resposta for negativa (ex: "os equipamentos estão sempre quebrados"): "Nossa, isso deve ser muito frustrante e pode até atrapalhar a consistência dos treinos."
-    *   Se a resposta for positiva (ex: "os instrutores são muito atenciosos"): "Que ótimo ouvir isso! Ter um bom suporte profissional faz toda a diferença na motivação, não é mesmo?"
-    *   Se a resposta for neutra (ex: "a iluminação é normal"): "Ok, um aspecto funcional que cumpre seu papel, sem grandes destaques."
-
+2.  **Refletir/Empatizar:** Faça um breve comentário de uma frase que se conecte diretamente ao conteúdo ou sentimento da 'RESPOSTA ANTERIOR DO USUÁRIO'.
 3.  **Fazer a Ponte:** Use uma frase de transição curta para mover a conversa para o próximo tópico.
-    *   Exemplos: "Mudando um pouco de assunto...", "Falando agora sobre...", "Isso me leva à próxima questão..."
-
 4.  **Perguntar:** Apresente a 'PRÓXIMA PERGUNTA DO ROTEIRO' de forma clara e exata.
-
-**Exceção:** Para a PRIMEIRA pergunta da entrevista (a introdução), não há resposta anterior. Apenas apresente a pergunta do roteiro de forma amigável e direta.
+**Exceção:** Para a PRIMEIRA pergunta da entrevista, não há resposta anterior. Apenas apresente a pergunta do roteiro de forma amigável e direta.
 """
 
 try:
@@ -111,7 +100,6 @@ def save_report(interview_id):
 def serve_index():
     return app.send_static_file('index.html')
 
-# --- FUNÇÃO interview_step CORRIGIDA ---
 @app.route('/interview', methods=['POST'])
 def interview_step():
     if not interview_script: return jsonify({'error': 'Erro: Roteiro não carregado.'}), 500
@@ -122,51 +110,51 @@ def interview_step():
     chat_history = data.get('history', [])
     interview_id = data.get('interview_id')
 
-    # Passo 1: Gerenciar a sessão da entrevista
+    is_first_step = not current_step_id
+
     if not interview_id:
         interview_id = str(uuid.uuid4())
         ongoing_interviews[interview_id] = {"start_time": datetime.utcnow(), "transcript": {}, "last_question": None, "last_topic": None}
     
-    # Passo 2: Salvar a resposta anterior (se houver)
-    if interview_id in ongoing_interviews and user_response and current_step_id:
+    if interview_id in ongoing_interviews and user_response and not is_first_step:
         session = ongoing_interviews[interview_id]
         topic = session["last_topic"]
         if topic:
             if topic not in session["transcript"]: session["transcript"][topic] = []
             session["transcript"][topic].append({"question": session["last_question"], "answer": user_response})
     
-    # Passo 3: Determinar qual é o próximo passo
-    # Se não há um 'current_step_id', significa que é o início da conversa.
-    if not current_step_id:
+    if is_first_step:
         next_step_id = interview_script["start_step_id"]
     else:
         next_step_id = get_next_step(current_step_id, user_response)
     
     next_step_data = interview_script["steps"].get(next_step_id)
-    next_question_to_ask = next_step_data["question_text"]
     
-    # Passo 4: Gerar a resposta do Gui via Gemini
-    prompt_for_gemini = (f"RESPOSTA ANTERIOR DO USUÁRIO: \"{user_response}\"\n\nPRÓXIMA PERGUNTA DO ROTEIRO: \"{next_question_to_ask}\"\n\nSua tarefa: Como Gui, gere a próxima resposta.")
-    try:
-        history_for_gemini = [{'role': 'user', 'parts': [SYSTEM_PROMPT]}, {'role': 'model', 'parts': ["Entendido."]}]
-        history_for_gemini.extend(chat_history)
-        convo = generation_model.start_chat(history=history_for_gemini)
-        convo.send_message(prompt_for_gemini)
-        gui_response = convo.last.text
-        
-        # Passo 5: Atualizar a sessão com a pergunta que ACABOU de ser feita
-        if interview_id in ongoing_interviews:
-            ongoing_interviews[interview_id]["last_question"] = gui_response
-            ongoing_interviews[interview_id]["last_topic"] = next_step_data.get("topic")
+    # --- AQUI ESTÁ A CORREÇÃO ---
+    # Se for a primeira etapa, não chame o Gemini. Apenas use o texto do script.
+    if is_first_step:
+        gui_response = next_step_data["question_text"]
+    else:
+        next_question_to_ask = next_step_data["question_text"]
+        prompt_for_gemini = (f"RESPOSTA ANTERIOR DO USUÁRIO: \"{user_response}\"\n\nPRÓXIMA PERGUNTA DO ROTEIRO: \"{next_question_to_ask}\"\n\nSua tarefa: Como Gui, gere a próxima resposta.")
+        try:
+            history_for_gemini = [{'role': 'user', 'parts': [SYSTEM_PROMPT]}, {'role': 'model', 'parts': ["Entendido."]}]
+            history_for_gemini.extend(chat_history)
+            convo = generation_model.start_chat(history=history_for_gemini)
+            convo.send_message(prompt_for_gemini)
+            gui_response = convo.last.text
+        except Exception as e:
+            logging.error(f"Erro ao chamar a API do Gemini: {e}")
+            return jsonify({'answer': 'Desculpe, tive um problema técnico.'}), 500
 
-        # Passo 6: Salvar o relatório se for o fim
-        if next_step_data.get("is_final", False):
-            save_report(interview_id)
+    if interview_id in ongoing_interviews:
+        ongoing_interviews[interview_id]["last_question"] = gui_response
+        ongoing_interviews[interview_id]["last_topic"] = next_step_data.get("topic")
+
+    if next_step_data.get("is_final", False):
+        save_report(interview_id)
             
-        return jsonify({'answer': gui_response, 'next_step_id': next_step_id, 'interview_id': interview_id})
-    except Exception as e:
-        logging.error(f"Erro ao chamar a API do Gemini: {e}")
-        return jsonify({'answer': 'Desculpe, tive um problema técnico.'}), 500
+    return jsonify({'answer': gui_response, 'next_step_id': next_step_id, 'interview_id': interview_id})
 
 @app.route('/synthesize', methods=['POST'])
 def synthesize():
