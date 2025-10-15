@@ -41,13 +41,11 @@ except Exception as e:
 SYSTEM_PROMPT = """
 Você é "Gui", um entrevistador de IA de elite. Sua personalidade é calorosa, curiosa, empática e profissional. Seu objetivo principal é conduzir uma pesquisa que se sinta como uma conversa humana genuína.
 Para cada interação, siga estritamente este fluxo de 4 passos:
-1.  **Agradecer/Reconhecer:** Inicie sua resposta com uma frase curta de reconhecimento (a menos que seja a primeira frase da conversa).
+1.  **Agradecer/Reconhecer:** Inicie sua resposta com uma frase curta de reconhecimento.
 2.  **Refletir/Empatizar:** Faça um breve comentário de uma frase que se conecte diretamente ao conteúdo ou sentimento da 'RESPOSTA ANTERIOR DO USUÁRIO'.
 3.  **Fazer a Ponte:** Use uma frase de transição curta para mover a conversa para o próximo tópico.
 4.  **Perguntar:** Apresente a 'PRÓXIMA PERGUNTA DO ROTEIRO' de forma clara e exata.
-**Exceção:** Para a PRIMEIRA pergunta da entrevista, não há resposta anterior. Apenas apresente a pergunta do roteiro de forma amigável e direta.
 """
-
 try:
     script_dir = os.path.dirname(__file__)
     file_path = os.path.join(script_dir, "interview_script.json")
@@ -96,10 +94,39 @@ def save_report(interview_id):
     logging.info(f"Relatório salvo: {filepath}")
     del ongoing_interviews[interview_id]
 
+# --- ENDPOINTS ---
 @app.route('/')
 def serve_index():
     return app.send_static_file('index.html')
 
+# --- MUDANÇA 1: NOVO ENDPOINT APENAS PARA INICIAR A ENTREVISTA ---
+@app.route('/start', methods=['POST'])
+def start_interview():
+    if not interview_script: return jsonify({'error': 'Erro: Roteiro não carregado.'}), 500
+    
+    interview_id = str(uuid.uuid4())
+    ongoing_interviews[interview_id] = {
+        "start_time": datetime.utcnow(),
+        "transcript": {},
+        "last_question": None,
+        "last_topic": None
+    }
+    
+    start_step_id = interview_script["start_step_id"]
+    start_step_data = interview_script["steps"].get(start_step_id)
+    intro_text = start_step_data["question_text"]
+    
+    # Salva a introdução como a "última pergunta" para registrar a primeira resposta
+    ongoing_interviews[interview_id]["last_question"] = intro_text
+    ongoing_interviews[interview_id]["last_topic"] = start_step_data.get("topic")
+
+    return jsonify({
+        'answer': intro_text,
+        'next_step_id': start_step_id, # Retorna o ID do passo atual
+        'interview_id': interview_id
+    })
+
+# --- MUDANÇA 2: ENDPOINT /interview SIMPLIFICADO E CORRIGIDO ---
 @app.route('/interview', methods=['POST'])
 def interview_step():
     if not interview_script: return jsonify({'error': 'Erro: Roteiro não carregado.'}), 500
@@ -110,51 +137,39 @@ def interview_step():
     chat_history = data.get('history', [])
     interview_id = data.get('interview_id')
 
-    is_first_step = not current_step_id
+    if not all([user_response, current_step_id, interview_id]):
+        return jsonify({'error': 'Dados insuficientes na requisição.'}), 400
 
-    if not interview_id:
-        interview_id = str(uuid.uuid4())
-        ongoing_interviews[interview_id] = {"start_time": datetime.utcnow(), "transcript": {}, "last_question": None, "last_topic": None}
-    
-    if interview_id in ongoing_interviews and user_response and not is_first_step:
+    if interview_id in ongoing_interviews:
         session = ongoing_interviews[interview_id]
         topic = session["last_topic"]
         if topic:
             if topic not in session["transcript"]: session["transcript"][topic] = []
             session["transcript"][topic].append({"question": session["last_question"], "answer": user_response})
     
-    if is_first_step:
-        next_step_id = interview_script["start_step_id"]
-    else:
-        next_step_id = get_next_step(current_step_id, user_response)
-    
+    next_step_id = get_next_step(current_step_id, user_response)
     next_step_data = interview_script["steps"].get(next_step_id)
+    next_question_to_ask = next_step_data["question_text"]
     
-    # --- AQUI ESTÁ A CORREÇÃO ---
-    # Se for a primeira etapa, não chame o Gemini. Apenas use o texto do script.
-    if is_first_step:
-        gui_response = next_step_data["question_text"]
-    else:
-        next_question_to_ask = next_step_data["question_text"]
-        prompt_for_gemini = (f"RESPOSTA ANTERIOR DO USUÁRIO: \"{user_response}\"\n\nPRÓXIMA PERGUNTA DO ROTEIRO: \"{next_question_to_ask}\"\n\nSua tarefa: Como Gui, gere a próxima resposta.")
-        try:
-            history_for_gemini = [{'role': 'user', 'parts': [SYSTEM_PROMPT]}, {'role': 'model', 'parts': ["Entendido."]}]
-            history_for_gemini.extend(chat_history)
-            convo = generation_model.start_chat(history=history_for_gemini)
-            convo.send_message(prompt_for_gemini)
-            gui_response = convo.last.text
-        except Exception as e:
-            logging.error(f"Erro ao chamar a API do Gemini: {e}")
-            return jsonify({'answer': 'Desculpe, tive um problema técnico.'}), 500
+    prompt_for_gemini = (f"RESPOSTA ANTERIOR DO USUÁRIO: \"{user_response}\"\n\nPRÓXIMA PERGUNTA DO ROTEIRO: \"{next_question_to_ask}\"\n\nSua tarefa: Como Gui, gere a próxima resposta.")
+    try:
+        history_for_gemini = [{'role': 'user', 'parts': [SYSTEM_PROMPT]}, {'role': 'model', 'parts': ["Entendido."]}]
+        history_for_gemini.extend(chat_history)
+        convo = generation_model.start_chat(history=history_for_gemini)
+        convo.send_message(prompt_for_gemini)
+        gui_response = convo.last.text
+        
+        if interview_id in ongoing_interviews:
+            ongoing_interviews[interview_id]["last_question"] = gui_response
+            ongoing_interviews[interview_id]["last_topic"] = next_step_data.get("topic")
 
-    if interview_id in ongoing_interviews:
-        ongoing_interviews[interview_id]["last_question"] = gui_response
-        ongoing_interviews[interview_id]["last_topic"] = next_step_data.get("topic")
-
-    if next_step_data.get("is_final", False):
-        save_report(interview_id)
+        if next_step_data.get("is_final", False):
+            save_report(interview_id)
             
-    return jsonify({'answer': gui_response, 'next_step_id': next_step_id, 'interview_id': interview_id})
+        return jsonify({'answer': gui_response, 'next_step_id': next_step_id, 'interview_id': interview_id})
+    except Exception as e:
+        logging.error(f"Erro ao chamar a API do Gemini: {e}")
+        return jsonify({'answer': 'Desculpe, tive um problema técnico.'}), 500
 
 @app.route('/synthesize', methods=['POST'])
 def synthesize():
@@ -173,6 +188,7 @@ def synthesize():
         logging.error(f"Erro ao chamar a API do Google TTS: {e}")
         return jsonify({"error": "Não foi possível gerar o áudio"}), 500
 
+# (Os endpoints de Admin permanecem os mesmos)
 @app.route('/admin')
 def admin_panel():
     return app.send_static_file('admin.html')
@@ -220,8 +236,4 @@ def download_report(file_format):
         logging.error(f"Erro ao gerar relatório para download: {e}")
         return "Erro ao gerar o relatório.", 500
 
-if __name__ == '__main__':
-    if not interview_script:
-        logging.fatal("O aplicativo não pode iniciar sem 'interview_script.json'.")
-    else:
-        app.run(host='0.0.0.0', port=5000)
+# A seção if __name__ == '__main__' foi removida para simplificar, pois o Gunicorn a ignora.

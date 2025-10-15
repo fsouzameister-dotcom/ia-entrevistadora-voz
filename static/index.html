@@ -81,13 +81,15 @@ document.addEventListener('DOMContentLoaded', () => {
     } else {
         startScreen.innerHTML = "<h1>Erro</h1><p>Seu navegador não suporta a API de reconhecimento de voz.</p>";
     }
-    let currentStepId = "s0_intro";
+    
+    let currentStepId = null;
     let chatHistory = [];
     let isListening = false;
     let finalTranscript = '';
-    // --- MUDANÇA 1: GERENCIAMENTO DO ID DA ENTREVISTA ---
     let interviewId = null; 
+    
     const API_URL = 'https://gui-entrevista-ia.onrender.com';
+    const API_START_URL = `${API_URL}/start`;
     const API_INTERVIEW_URL = `${API_URL}/interview`;
     const API_SYNTHESIZE_URL = `${API_URL}/synthesize`;
 
@@ -98,7 +100,7 @@ document.addEventListener('DOMContentLoaded', () => {
         statusDiv.textContent = "Gui está falando...";
         micBtn.disabled = true;
         audio.onended = () => {
-            if (currentStepId !== "s16_end") {
+            if (currentStepId !== "s16_end") { // Use o ID do passo final do seu JSON
                 statusDiv.textContent = "Clique no microfone para falar";
                 micBtn.disabled = false;
             } else {
@@ -108,20 +110,48 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         };
     }
-    async function getAIResponse(userText = "") {
+
+    // --- MUDANÇA 1: FUNÇÃO DEDICADA PARA INICIAR A ENTREVISTA ---
+    async function startInterview() {
+        statusDiv.textContent = "Iniciando a entrevista...";
+        micBtn.disabled = true;
+        try {
+            const startResponse = await fetch(API_START_URL, { method: 'POST' });
+            const startData = await startResponse.json();
+            if (!startResponse.ok) throw new Error(startData.error || "Falha ao iniciar a entrevista.");
+            
+            interviewId = startData.interview_id;
+            currentStepId = startData.next_step_id;
+            chatHistory.push({ role: 'model', parts: [startData.answer] });
+
+            const ttsResponse = await fetch(API_SYNTHESIZE_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ text: startData.answer })
+            });
+            if (!ttsResponse.ok) throw new Error("Falha ao gerar áudio inicial.");
+            
+            const audioBlob = await ttsResponse.blob();
+            playAudioResponse(audioBlob);
+
+        } catch (error) {
+            console.error("Erro ao iniciar a entrevista:", error);
+            statusDiv.textContent = "Ocorreu um erro ao iniciar. Tente novamente.";
+        }
+    }
+
+    // --- MUDANÇA 2: FUNÇÃO getAIResponse AGORA É APENAS PARA CONTINUAR A CONVERSA ---
+    async function getAIResponse(userText) {
         statusDiv.textContent = "Gui está processando...";
         micBtn.disabled = true;
-        transcriptDiv.textContent = userText ? `Você disse: "${userText}"` : "";
+        transcriptDiv.textContent = `Você disse: "${userText}"`;
         try {
             const responsePayload = {
                 response: userText,
                 current_step_id: currentStepId,
-                history: chatHistory
+                history: chatHistory,
+                interview_id: interviewId
             };
-            // --- MUDANÇA 2: ENVIAR O ID DA ENTREVISTA ---
-            if (interviewId) {
-                responsePayload.interview_id = interviewId;
-            }
 
             const interviewResponse = await fetch(API_INTERVIEW_URL, {
                 method: 'POST',
@@ -131,13 +161,8 @@ document.addEventListener('DOMContentLoaded', () => {
             const interviewData = await interviewResponse.json();
             if (!interviewResponse.ok) throw new Error(interviewData.error || "Falha na API da entrevista.");
             
-            // --- MUDANÇA 3: CAPTURAR O ID DA ENTREVISTA NO INÍCIO ---
-            if (interviewData.interview_id && !interviewId) {
-                interviewId = interviewData.interview_id;
-            }
-
             currentStepId = interviewData.next_step_id;
-            if (userText) chatHistory.push({ role: 'user', parts: [userText] });
+            chatHistory.push({ role: 'user', parts: [userText] });
             chatHistory.push({ role: 'model', parts: [interviewData.answer] });
             const ttsResponse = await fetch(API_SYNTHESIZE_URL, {
                 method: 'POST',
@@ -153,6 +178,8 @@ document.addEventListener('DOMContentLoaded', () => {
             micBtn.disabled = false;
         }
     }
+    
+    // (O resto da lógica de escuta permanece a mesma)
     function startListening() {
         if (isListening || !recognition) return;
         finalTranscript = '';
@@ -203,10 +230,12 @@ document.addEventListener('DOMContentLoaded', () => {
             startListening();
         }
     });
+    
+    // --- MUDANÇA 3: O BOTÃO DE INÍCIO AGORA CHAMA a nova função ---
     startBtn.addEventListener('click', () => {
         startScreen.classList.add('hidden');
         interviewScreen.classList.remove('hidden');
-        getAIResponse();
+        startInterview();
     });
 });
 </script>
