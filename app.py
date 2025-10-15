@@ -16,12 +16,14 @@ from flask_cors import CORS
 load_dotenv()
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
+# --- CONFIGURAÇÕES E INICIALIZAÇÃO ---
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "SENHA_ADMIN")
 REPORTS_DIR = "relatorios"
 
 if not os.path.exists(REPORTS_DIR):
     os.makedirs(REPORTS_DIR)
 
+# --- INICIALIZAÇÃO DOS SERVIÇOS ---
 google_api_key = os.getenv("GOOGLE_API_KEY")
 if not google_api_key: raise ValueError("Chave da API do Google não encontrada.")
 genai.configure(api_key=google_api_key)
@@ -35,7 +37,33 @@ try:
 except Exception as e:
     logging.error(f"FALHA CRÍTICA AO INICIALIZAR O CLIENTE GOOGLE TTS: {e}")
 
-SYSTEM_PROMPT = "Você é Gui, um entrevistador de IA empático e profissional..."
+# --- MUDANÇA 1: RESTAURANDO O SYSTEM_PROMPT COMPLETO E DETALHADO ---
+SYSTEM_PROMPT = """
+Você é "Gui", um entrevistador de IA de elite. Sua personalidade é calorosa, curiosa, empática e profissional. Seu objetivo principal é conduzir uma pesquisa que se sinta como uma conversa humana genuína.Você não repete tantas expressões e age de forma a se conectar com o entrevistado.
+
+Para cada interação, siga estritamente este fluxo de 4 passos:
+
+1.  **Agradecer/Reconhecer:** Inicie sua resposta com uma frase curta de reconhecimento (a menos que seja a primeira frase da conversa).
+    *   Exemplos: "Entendido.", "Certo.", "Obrigado por compartilhar isso.", "Anotado."
+
+2.  **Refletir/Empatizar (O PASSO MAIS IMPORTANTE):** Faça um breve comentário de uma frase que se conecte diretamente ao conteúdo ou sentimento da 'RESPOSTA ANTERIOR DO USUÁRIO'. Mostre que você entendeu não apenas as palavras, mas o significado por trás delas.
+    *   Se a resposta for negativa (ex: "os equipamentos estão sempre quebrados"): "Nossa, isso deve ser muito frustrante e pode até atrapalhar a consistência dos treinos."
+    *   Se a resposta for positiva (ex: "os instrutores são muito atenciosos"): "Que ótimo ouvir isso! Ter um bom suporte profissional faz toda a diferença na motivação, não é mesmo?"
+    *   Se a resposta for neutra (ex: "a iluminação é normal"): "Ok, um aspecto funcional que cumpre seu papel, sem grandes destaques."
+
+3.  **Fazer a Ponte:** Use uma frase de transição curta para mover a conversa para o próximo tópico.
+    *   Exemplos: "Mudando um pouco de assunto...", "Falando agora sobre...", "Isso me leva à próxima questão..."
+
+4.  **Perguntar:** Apresente a 'PRÓXIMA PERGUNTA DO ROTEIRO' de forma clara e exata.
+
+**Exceção:** Para a PRIMEIRA pergunta da entrevista (a introdução), não há resposta anterior. Apenas apresente a pergunta do roteiro de forma amigável e direta.
+
+**Exemplo de Execução Perfeita (no meio da conversa):**
+- RESPOSTA ANTERIOR DO USUÁRIO: "A academia é ok, mas os vestiários são muito sujos, eu evito usar."
+- PRÓXIMA PERGUNTA DO ROTEIRO: "E sobre os equipamentos, você encontra a variedade que precisa para os seus treinos?"
+- SUA RESPOSTA IDEAL GERADA: "Entendido. Higiene no vestiário é fundamental para o conforto, imagino que seja uma situação bem desagradável. Mudando um pouco o foco agora, sobre os equipamentos, você encontra a variedade que precisa para os seus treinos?"
+"""
+
 try:
     script_dir = os.path.dirname(__file__)
     file_path = os.path.join(script_dir, "interview_script.json")
@@ -93,21 +121,32 @@ def interview_step():
     if not interview_script: return jsonify({'error': 'Erro: Roteiro não carregado.'}), 500
     data = request.get_json()
     user_response = data.get('response', '')
-    current_step_id = data.get('current_step_id', interview_script["start_step_id"])
+    current_step_id = data.get('current_step_id') # Removido o padrão para forçar a lógica inicial
     chat_history = data.get('history', [])
     interview_id = data.get('interview_id')
+
+    # --- MUDANÇA 2: CORRIGINDO A LÓGICA DE INÍCIO DA ENTREVISTA ---
+    is_first_step = not current_step_id or current_step_id == interview_script["start_step_id"]
+
     if not interview_id:
         interview_id = str(uuid.uuid4())
         ongoing_interviews[interview_id] = {"start_time": datetime.utcnow(), "transcript": {}, "last_question": None, "last_topic": None}
-    if interview_id in ongoing_interviews and user_response:
+    
+    if interview_id in ongoing_interviews and user_response and not is_first_step:
         session = ongoing_interviews[interview_id]
         topic = session["last_topic"]
         if topic:
             if topic not in session["transcript"]: session["transcript"][topic] = []
             session["transcript"][topic].append({"question": session["last_question"], "answer": user_response})
-    next_step_id = get_next_step(current_step_id, user_response)
+    
+    if is_first_step:
+        next_step_id = interview_script["start_step_id"]
+    else:
+        next_step_id = get_next_step(current_step_id, user_response)
+    
     next_step_data = interview_script["steps"].get(next_step_id)
     next_question_to_ask = next_step_data["question_text"]
+    
     prompt_for_gemini = (f"RESPOSTA ANTERIOR DO USUÁRIO: \"{user_response}\"\n\nPRÓXIMA PERGUNTA DO ROTEIRO: \"{next_question_to_ask}\"\n\nSua tarefa: Como Gui, gere a próxima resposta.")
     try:
         history_for_gemini = [{'role': 'user', 'parts': [SYSTEM_PROMPT]}, {'role': 'model', 'parts': ["Entendido."]}]
@@ -126,6 +165,7 @@ def interview_step():
 
 @app.route('/synthesize', methods=['POST'])
 def synthesize():
+    # Esta função permanece igual
     if not tts_client: return jsonify({"error": "Serviço de TTS não configurado"}), 500
     data = request.get_json()
     text = data.get('text', '')
@@ -140,8 +180,6 @@ def synthesize():
         logging.error(f"Erro ao chamar a API do Google TTS: {e}")
         return jsonify({"error": "Não foi possível gerar o áudio"}), 500
 
-# --- AQUI ESTÁ A CORREÇÃO ---
-# Usando app.send_static_file, que é a maneira correta do Flask servir arquivos da sua pasta 'static'
 @app.route('/admin')
 def admin_panel():
     return app.send_static_file('admin.html')
