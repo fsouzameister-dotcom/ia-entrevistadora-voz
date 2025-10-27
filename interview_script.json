@@ -3,50 +3,84 @@
   "end_step_id": "FINAL_END",
   "chapters": {
     "FILTRO": {
-      "start_step_id": "F_P1",
+      "start_step_id": "s0_greeting",
       "steps": {
-        "F_P1": {
-          "question_text": "Para começarmos, preciso fazer algumas perguntas de qualificação. Você ou alguém que mora com você trabalha em alguma das seguintes áreas: Institutos de pesquisa de mercado, lojas ou indústrias de materiais de construção, ou na indústria de produtos de limpeza?",
-          "topic": "Filtro - Perfil",
-          "requires_interpretation": true,
-          "options": ["Sim", "Não"],
-          "logic": [
-            { "if_answer": "Sim", "action": "END_INTERVIEW", "reason": "Perfil de trabalho excludente" }
-          ],
+        "s0_greeting": {
+          "question_text": "Olá! Meu nome é Gui e sou um assistente de pesquisa da Empresa Teste. Estou aqui hoje para conversarmos um pouco sobre sua experiência conosco. Sua opinião é muito importante para nós. A conversa é rápida, tudo bem?",
+          "topic": "Abertura",
+          "next_step_id": "s0_intro"
+        },
+        "s0_intro": {
+          "question_text": "Que ótimo! A Empresa Teste valoriza profundamente nossa parceria e seu feedback é essencial para orientar nossas decisões estratégicas. Suas respostas são totalmente confidenciais. Podemos começar?",
+          "topic": "Abertura",
           "next_step_id": "F_P2"
         },
         "F_P2": {
-          "question_text": "Obrigado. Você se identifica como homem ou mulher?",
+          "question_text": "Para iniciarmos, você se identifica como homem ou mulher?",
           "topic": "Filtro - Perfil",
           "next_step_id": "F_P3"
         },
         "F_P3": {
           "question_text": "Qual é a sua idade?",
           "topic": "Filtro - Perfil",
-          "next_step_id": "F_P5"
+          "next_step_id": "F_P4_intro"
+        },
+        "F_P4_intro": {
+          "question_text": "Certo. Agora, para finalizarmos esta parte de classificação, farei algumas breves perguntas sobre itens em sua residência. Não se preocupe, é bem rápido.",
+          "topic": "Filtro - Critério Brasil",
+          "next_step_id": "F_P4_1"
+        },
+        "F_P4_1": {
+          "question_text": "Quantos automóveis de passeio, para uso particular, vocês possuem em casa?",
+          "topic": "Filtro - Critério Brasil",
+          "requires_interpretation": true,
+          "options": ["Nenhum", "1", "2", "3", "4 ou mais"],
+          "next_step_id": "F_P4_2"
+        },
+        "F_P4_2": {
+          "question_text": "E quantos banheiros com chuveiro existem em sua casa?",
+          "topic": "Filtro - Critério Brasil",
+          "requires_interpretation": true,
+          "options": ["Nenhum", "1", "2", "3", "4 ou mais"],
+          "next_step_id": "F_P4_3"
+        },
+        "F_P4_3": {
+          "question_text": "Pensando em eletrodomésticos, vocês têm máquina de lavar roupas, sem contar tanquinhos?",
+          "topic": "Filtro - Critério Brasil",
+          "requires_interpretation": true,
+          "options": ["Sim", "Não"],
+          "next_step_id": "F_P4_4"
+        },
+        "F_P4_4": {
+          "question_text": "E sobre o grau de escolaridade do principal provedor da família, qual foi o nível mais alto que ele ou ela completou? Seria fundamental, médio ou superior?",
+          "topic": "Filtro - Critério Brasil",
+          "requires_interpretation": true,
+          "options": ["Fundamental ou menos", "Médio", "Superior"],
+          "next_step_id": "F_P5",
+          "action": "CALCULATE_CRITERIO_BRASIL"
         },
         "F_P5": {
-          "question_text": "Em que cidade você mora?",
+          "question_text": "Em qual cidade você mora?",
           "topic": "Filtro - Perfil",
           "requires_interpretation": true,
           "options": ["São Paulo", "Campinas", "São José do Rio Preto", "Ribeirão Preto", "Goiânia", "Curitiba", "Florianópolis", "Salvador", "Feira de Santana", "Outras"],
           "logic": [
-            { "if_answer": "Outras", "action": "END_INTERVIEW", "reason": "Cidade fora do escopo" }
+            { "if_answer": "Outras", "action": "END_INTERVIEW", "reason": "Cidade fora do escopo da pesquisa" }
           ],
           "next_step_id": "F_P6"
         },
         "F_P6": {
-          "question_text": "Pensando nos últimos 12 meses, você realizou algum tipo de construção, ampliação, reforma ou pequenos reparos em um imóvel residencial?",
+          "question_text": "Ok. Pensando nos últimos 12 meses, você esteve envolvido em alguma construção, ampliação, reforma ou pequenos reparos em um imóvel residencial?",
           "topic": "Filtro - Atividade",
           "requires_interpretation": true,
           "options": ["Sim", "Não"],
           "logic": [
-            { "if_answer": "Não", "action": "END_INTERVIEW", "reason": "Nenhuma atividade de obra/reforma" }
+            { "if_answer": "Não", "action": "END_INTERVIEW", "reason": "não ter realizado atividades de obra ou reforma recentemente" }
           ],
           "next_step_id": "F_P7"
         },
         "F_P7": {
-          "question_text": "Entendido. E para essa obra ou reforma, você precisou comprar algum destes materiais: cimento, argamassa ou rejunte?",
+          "question_text": "Entendido. E para essa obra ou reforma, você precisou comprar cimento, argamassa ou rejunte?",
           "topic": "Filtro - Produto",
           "is_multi_choice": true,
           "options": ["Cimento", "Argamassa", "Rejunte", "Nenhum"],
@@ -54,7 +88,7 @@
             { "if_answer_contains": "Cimento", "action": "ADD_CHAPTER", "chapter": "CIMENTO" },
             { "if_answer_contains": "Argamassa", "action": "ADD_CHAPTER", "chapter": "ARGAMASSA" },
             { "if_answer_contains": "Rejunte", "action": "ADD_CHAPTER", "chapter": "REJUNTE" },
-            { "if_answer": "Nenhum", "action": "END_INTERVIEW", "reason": "Não comprou produtos relevantes" }
+            { "if_answer": "Nenhum", "action": "END_INTERVIEW", "reason": "não ter comprado os produtos relevantes para esta pesquisa" }
           ],
           "next_action": "START_NEXT_CHAPTER"
         }
@@ -161,6 +195,10 @@
   "final_steps": {
      "FINAL_END": {
         "question_text": "Agradecemos imensamente sua participação e seu tempo. Suas respostas são muito valiosas. Tenha um ótimo dia!",
+        "is_final": true
+      },
+     "TERMINATION_END": {
+        "question_text": "Agradeço muito seu tempo e sua disposição em participar. Para os objetivos específicos desta pesquisa, as respostas que você forneceu indicam que precisaremos seguir com um outro perfil de entrevistado. De qualquer forma, sua ajuda foi muito importante. Muito obrigado e tenha um ótimo dia!",
         "is_final": true
       }
   }
