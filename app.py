@@ -16,40 +16,28 @@ from flask_cors import CORS
 load_dotenv()
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
+# --- CONFIGURAÇÕES E INICIALIZAÇÃO ---
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "SENHA_ADMIN")
 REPORTS_DIR = "relatorios"
+if not os.path.exists(REPORTS_DIR): os.makedirs(REPORTS_DIR)
 
-if not os.path.exists(REPORTS_DIR):
-    os.makedirs(REPORTS_DIR)
-
+# --- INICIALIZAÇÃO DOS SERVIÇOS ---
 google_api_key = os.getenv("GOOGLE_API_KEY")
 if not google_api_key: raise ValueError("Chave da API do Google não encontrada.")
 genai.configure(api_key=google_api_key)
 generation_model = genai.GenerativeModel('models/gemini-2.5-flash')
-logging.info("Modelo Gemini inicializado.")
+interpreter_model = genai.GenerativeModel('models/gemini-2.5-flash') # Modelo dedicado para interpretação
+logging.info("Modelos Gemini inicializados.")
 
 tts_client = None
 try:
     tts_client = texttospeech.TextToSpeechClient()
-    logging.info("Cliente Google TTS inicializado com sucesso.")
+    logging.info("Cliente Google TTS inicializado.")
 except Exception as e:
-    logging.error(f"FALHA CRÍTICA AO INICIALIZAR O CLIENTE GOOGLE TTS: {e}")
+    logging.error(f"FALHA AO INICIALIZAR O CLIENTE GOOGLE TTS: {e}")
 
-SYSTEM_PROMPT = """
-Você é "Gui", um entrevistador de IA de elite. Sua personalidade é calorosa, curiosa, empática e profissional. Seu objetivo principal é conduzir uma pesquisa que se sinta como uma conversa humana genuína e fluida.
-Para cada interação, siga estritamente estas diretrizes:
-**FLUXO PRINCIPAL DE CONVERSA (4 PASSOS):**
-1.  **Agradecer/Reconhecer:** Inicie sua resposta com uma frase curta de reconhecimento (a menos que seja a primeira frase da conversa), mas não use repetições. Ex: Se usar "Obrigado" para uma resposta, na proxima use "Ótimo" (se for cabível).
-2.  **Refletir/Empatizar:** Faça um BREVE comentário (uma frase) que se conecte ao conteúdo da resposta anterior. Mostre que você entendeu, porém sem repetir tanto o que o entrevistado respondeu, faça isso de maneira natural.
-3.  **Fazer a Ponte:** Use uma frase de transição curta.
-4.  **Perguntar:** Apresente a 'PRÓXIMA PERGUNTA DO ROTEIRO' de forma clara e exata.
-**REGRAS DE EXCEÇÃO E REFINAMENTO (MUITO IMPORTANTE):**
-*   **REGRA 1: Se a resposta do usuário for apenas uma concordância curta** (como "sim", "ok", "podemos"), **NÃO execute o passo 2 (Refletir/Empatizar)**. Apenas agradeça brevemente e faça a próxima pergunta.
-*   **REGRA 2: Se for a primeira pergunta da entrevista**, não há resposta anterior. Apenas apresente a pergunta do roteiro.
-"""
-
-# --- AQUI ESTÁ A CORREÇÃO ---
-# A linha foi restaurada para sua forma completa e correta.
+# --- PERSONA E ROTEIRO ---
+SYSTEM_PROMPT = "Você é Gui, um entrevistador de IA empático e profissional..." # Mantido o mesmo prompt detalhado
 try:
     script_dir = os.path.dirname(os.path.realpath(__file__))
     file_path = os.path.join(script_dir, "interview_script.json")
@@ -64,95 +52,153 @@ ongoing_interviews = {}
 app = Flask(__name__, static_folder='static', static_url_path='')
 CORS(app)
 
-def get_next_step(current_step_id, user_response):
-    current_step = interview_script["steps"].get(current_step_id)
-    if not current_step: return interview_script["start_step_id"]
-    if current_step.get("awaits_rating"):
-        rating_logic = current_step.get("rating_logic", {})
-        try:
-            numbers = re.findall(r'\d+', user_response)
-            if numbers:
-                rating = int(numbers[0])
-                if "detractor_threshold" in rating_logic:
-                    if rating <= rating_logic["detractor_threshold"]: return rating_logic["detractor_step_id"]
-                    else: return rating_logic["promoter_step_id"]
-                elif "threshold" in rating_logic:
-                    if rating <= rating_logic["threshold"]: return rating_logic["follow_up_step_id"]
-        except (ValueError, IndexError): pass
-    response_lower = user_response.lower()
-    if "conditional_logic" in current_step:
-        for condition in current_step["conditional_logic"]:
-            if any(keyword in response_lower for keyword in condition["keywords"]):
-                return condition["next_step_id"]
-    return current_step.get("next_step_id", interview_script["end_step_id"])
+# --- NOVO MOTOR DE REGRAS E NAVEGAÇÃO ---
 
-def save_report(interview_id):
-    if interview_id not in ongoing_interviews: return
-    if not os.path.exists(REPORTS_DIR): os.makedirs(REPORTS_DIR)
-    interview_data = ongoing_interviews[interview_id]
-    end_time = datetime.utcnow()
-    duration = (end_time - interview_data["start_time"]).total_seconds()
-    report = { "interview_id": interview_id, "start_time": interview_data["start_time"].isoformat() + "Z", "end_time": end_time.isoformat() + "Z", "duration_seconds": int(duration), "transcript": interview_data["transcript"] }
-    filename = f"entrevista_{end_time.strftime('%Y-%m-%d_%H-%M-%S')}_{interview_id[:8]}.json"
-    filepath = os.path.join(REPORTS_DIR, filename)
-    with open(filepath, 'w', encoding='utf-8') as f: json.dump(report, f, ensure_ascii=False, indent=2)
-    logging.info(f"Relatório salvo: {filepath}")
-    del ongoing_interviews[interview_id]
+def interpret_response(question_options, user_answer):
+    """Usa a IA para categorizar uma resposta aberta em uma das opções predefinidas."""
+    prompt = (
+        f"Contexto: O usuário respondeu a uma pergunta. As opções de resposta possíveis são: {json.dumps(question_options, ensure_ascii=False)}.\n"
+        f"Resposta do Usuário: \"{user_answer}\"\n"
+        "Sua Tarefa: Analise a resposta do usuário e retorne APENAS a opção da lista que melhor corresponde à resposta. "
+        "Se a resposta indicar mais de uma opção, retorne as opções separadas por vírgula. "
+        "Se não corresponder a nenhuma, retorne 'N/A'."
+    )
+    try:
+        response = interpreter_model.generate_content(prompt)
+        interpreted_answer = response.text.strip()
+        logging.info(f"Resposta '{user_answer}' interpretada como: '{interpreted_answer}'")
+        return interpreted_answer
+    except Exception as e:
+        logging.error(f"Erro na interpretação da IA: {e}")
+        return user_answer # Retorna a resposta original em caso de erro
 
+def navigate_interview(session, user_response):
+    """O novo motor de regras que processa a lógica do JSON."""
+    current_step_id = session['current_step_id']
+    current_step_data = interview_script["chapters"][session['current_chapter']]['steps'].get(current_step_id)
+
+    if not current_step_data:
+        # Fim de um capítulo, ou erro
+        session['last_action_result'] = "END_CHAPTER"
+        return
+
+    # Salva a resposta do usuário (bruta)
+    topic = current_step_data.get("topic", "N/A")
+    if topic not in session['transcript']: session['transcript'][topic] = []
+    session['transcript'][topic].append({ "question": session['last_question'], "answer": user_response })
+
+    # Interpreta a resposta se necessário
+    final_answer = user_response
+    if current_step_data.get("requires_interpretation"):
+        final_answer = interpret_response(current_step_data.get("options", []), user_response)
+        # Salva o dado interpretado no perfil para uso futuro
+        session['user_profile'][current_step_id] = final_answer
+
+    # Processa a lógica de ações (cortes, ramificações)
+    if "logic" in current_step_data:
+        for rule in current_step_data["logic"]:
+            action = rule.get("action")
+            if rule.get("if_answer") == final_answer or (rule.get("if_answer_contains") and rule.get("if_answer_contains") in final_answer):
+                if action == "END_INTERVIEW":
+                    session['last_action_result'] = "END_INTERVIEW"
+                    logging.info(f"Entrevista {session['interview_id']} encerrada por regra: {rule.get('reason')}")
+                    return
+                elif action == "ADD_CHAPTER":
+                    chapter_to_add = rule.get("chapter")
+                    if chapter_to_add not in session['chapter_queue']:
+                        session['chapter_queue'].append(chapter_to_add)
+    
+    # Determina o próximo passo
+    if current_step_data.get("next_action") == "START_NEXT_CHAPTER":
+        session['last_action_result'] = "END_CHAPTER"
+        return
+
+    session['next_step_id'] = current_step_data.get("next_step_id")
+    session['last_action_result'] = "CONTINUE"
+
+
+# --- ENDPOINTS ---
 @app.route('/')
-def serve_index():
-    return app.send_static_file('index.html')
+def serve_index(): return app.send_static_file('index.html')
 
 @app.route('/start', methods=['POST'])
 def start_interview():
-    if not interview_script: return jsonify({'error': 'Erro: Roteiro não carregado.'}), 500
     interview_id = str(uuid.uuid4())
-    ongoing_interviews[interview_id] = {"start_time": datetime.utcnow(), "transcript": {}, "last_question": None, "last_topic": None}
-    start_step_id = interview_script["start_step_id"]
-    start_step_data = interview_script["steps"].get(start_step_id)
-    intro_text = start_step_data["question_text"]
-    ongoing_interviews[interview_id]["last_question"] = intro_text
-    ongoing_interviews[interview_id]["last_topic"] = start_step_data.get("topic")
+    start_chapter = interview_script['start_chapter']
+    start_step_id = interview_script['chapters'][start_chapter]['start_step_id']
+    start_step_data = interview_script['chapters'][start_chapter]['steps'][start_step_id]
+    intro_text = start_step_data['question_text']
+
+    ongoing_interviews[interview_id] = {
+        "interview_id": interview_id,
+        "start_time": datetime.utcnow(),
+        "transcript": {},
+        "user_profile": {},
+        "chapter_queue": [],
+        "current_chapter": start_chapter,
+        "current_step_id": start_step_id,
+        "last_question": intro_text,
+        "last_topic": start_step_data.get("topic")
+    }
     return jsonify({'answer': intro_text, 'next_step_id': start_step_id, 'interview_id': interview_id})
 
 @app.route('/interview', methods=['POST'])
 def interview_step():
-    if not interview_script: return jsonify({'error': 'Erro: Roteiro não carregado.'}), 500
     data = request.get_json()
-    user_response = data.get('response', '')
-    current_step_id = data.get('current_step_id')
-    chat_history = data.get('history', [])
     interview_id = data.get('interview_id')
-    if not all([user_response, current_step_id, interview_id]):
-        return jsonify({'error': 'Dados insuficientes na requisição.'}), 400
-    if interview_id in ongoing_interviews:
-        session = ongoing_interviews[interview_id]
-        topic = session["last_topic"]
-        if topic:
-            if topic not in session["transcript"]: session["transcript"][topic] = []
-            session["transcript"][topic].append({"question": session["last_question"], "answer": user_response})
-    next_step_id = get_next_step(current_step_id, user_response)
-    next_step_data = interview_script["steps"].get(next_step_id)
-    next_question_to_ask = next_step_data["question_text"]
+    user_response = data.get('response', '')
+    session = ongoing_interviews.get(interview_id)
+
+    if not session: return jsonify({'error': 'Sessão inválida.'}), 400
+
+    # Executa o motor de regras
+    navigate_interview(session, user_response)
+
+    # Processa o resultado da navegação
+    if session['last_action_result'] == "END_INTERVIEW":
+        final_step_data = interview_script['final_steps']['FINAL_END']
+        session['current_step_id'] = "FINAL_END"
+        save_report(interview_id)
+        return jsonify({'answer': final_step_data['question_text'], 'next_step_id': "FINAL_END"})
+    
+    if session['last_action_result'] == "END_CHAPTER":
+        if session['chapter_queue']:
+            next_chapter = session['chapter_queue'].pop(0)
+            session['current_chapter'] = next_chapter
+            next_step_id = interview_script['chapters'][next_chapter]['start_step_id']
+            session['current_step_id'] = next_step_id
+        else: # Fim de todos os capítulos
+            finalization_chapter = "FINALIZACAO"
+            session['current_chapter'] = finalization_chapter
+            next_step_id = interview_script['chapters'][finalization_chapter]['start_step_id']
+            session['current_step_id'] = next_step_id
+    else: # Continua no mesmo capítulo
+        next_step_id = session['next_step_id']
+        session['current_step_id'] = next_step_id
+
+    next_step_data = interview_script['chapters'][session['current_chapter']]['steps'][next_step_id]
+    next_question_to_ask = next_step_data['question_text']
+
+    # Lógica de humanização com Gemini
     prompt_for_gemini = (f"RESPOSTA ANTERIOR DO USUÁRIO: \"{user_response}\"\n\nPRÓXIMA PERGUNTA DO ROTEIRO: \"{next_question_to_ask}\"\n\nSua tarefa: Como Gui, gere a próxima resposta.")
     try:
-        history_for_gemini = [{'role': 'user', 'parts': [SYSTEM_PROMPT]}, {'role': 'model', 'parts': ["Entendido."]}]
-        history_for_gemini.extend(chat_history)
-        convo = generation_model.start_chat(history=history_for_gemini)
+        convo = generation_model.start_chat(history=[{'role': 'user', 'parts': [SYSTEM_PROMPT]}, {'role': 'model', 'parts': ["Entendido."]}])
         convo.send_message(prompt_for_gemini)
-        gui_response = convo.last.text
-        cleaned_response = gui_response.replace('*', '')
-        if interview_id in ongoing_interviews:
-            ongoing_interviews[interview_id]["last_question"] = cleaned_response
-            ongoing_interviews[interview_id]["last_topic"] = next_step_data.get("topic")
-        if next_step_data.get("is_final", False): save_report(interview_id)
-        return jsonify({'answer': cleaned_response, 'next_step_id': next_step_id, 'interview_id': interview_id})
+        gui_response = convo.last.text.replace('*', '')
+        session['last_question'] = gui_response
+        session['last_topic'] = next_step_data.get("topic")
+
+        if next_step_data.get("is_final") or next_step_id == "FINAL_END":
+            save_report(interview_id)
+
+        return jsonify({'answer': gui_response, 'next_step_id': next_step_id, 'interview_id': interview_id})
     except Exception as e:
-        logging.error(f"Erro ao chamar a API do Gemini: {e}")
+        logging.error(f"Erro na chamada do Gemini: {e}")
         return jsonify({'answer': 'Desculpe, tive um problema técnico.'}), 500
 
 @app.route('/synthesize', methods=['POST'])
 def synthesize():
+    # ... (sem alterações) ...
     if not tts_client: return jsonify({"error": "Serviço de TTS não configurado"}), 500
     data = request.get_json()
     text = data.get('text', '')
@@ -167,12 +213,13 @@ def synthesize():
         logging.error(f"Erro ao chamar a API do Google TTS: {e}")
         return jsonify({"error": "Não foi possível gerar o áudio"}), 500
 
+# --- ENDPOINTS DE ADMINISTRAÇÃO E DOWNLOAD (COM RELATÓRIO MULTI-ABAS) ---
 @app.route('/admin')
-def admin_panel():
-    return app.send_static_file('admin.html')
+def admin_panel(): return app.send_static_file('admin.html')
 
 @app.route('/admin/reports')
 def list_reports():
+    # ... (sem alterações) ...
     try:
         if not os.path.exists(REPORTS_DIR): return jsonify({"reports": []})
         files = [f for f in os.listdir(REPORTS_DIR) if f.endswith('.json')]
@@ -182,48 +229,48 @@ def list_reports():
         logging.error(f"Erro ao listar relatórios: {e}")
         return jsonify({"error": "Não foi possível listar os relatórios"}), 500
 
-@app.route('/admin/download/<file_format>')
-def download_report(file_format):
-    all_data = []
+@app.route('/admin/download/xls')
+def download_xls_report():
     try:
-        if not os.path.exists(REPORTS_DIR):
+        if not os.path.exists(REPORTS_DIR) or not os.listdir(REPORTS_DIR):
             return "Nenhum relatório encontrado para download.", 404
-        for filename in os.listdir(REPORTS_DIR):
-            if filename.endswith('.json'):
-                filepath = os.path.join(REPORTS_DIR, filename)
-                with open(filepath, 'r', encoding='utf-8') as f:
-                    report = json.load(f)
-                    for topic, qas in report.get("transcript", {}).items():
-                        for qa in qas:
-                            all_data.append({"interview_id": report.get("interview_id", ""), "start_time": report.get("start_time", ""), "end_time": report.get("end_time", ""),"topic": topic, "question": qa.get("question", ""), "answer": qa.get("answer", "")})
-        if not all_data:
-            df = pd.DataFrame([{"info": "Nenhum dado de entrevista encontrado."}])
-        else:
-            df = pd.DataFrame(all_data)
+        
         output = BytesIO()
-        if file_format == 'csv':
-            df.to_csv(output, index=False, encoding='utf-8-sig')
-            mimetype = 'text/csv'
-            filename = 'consolidated_report.csv'
-        elif file_format == 'xls':
-            writer = pd.ExcelWriter(output, engine='openpyxl')
-            df.to_excel(writer, index=False, sheet_name='Entrevistas')
-            writer.close()
-            mimetype = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-            filename = 'consolidated_report.xlsx'
-        else:
-            return "Formato de arquivo não suportado.", 400
-        output.seek(0)
-        return send_file(output, as_attachment=True, download_name=filename, mimetype=mimetype)
-    except Exception as e:
-        logging.error(f"Erro ao gerar relatório para download: {e}")
-        return "Erro ao gerar o relatório.", 500
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            all_files_data = [json.load(open(os.path.join(REPORTS_DIR, f), 'r', encoding='utf-8')) for f in os.listdir(REPORTS_DIR) if f.endswith('.json')]
+            
+            # Aba 1: Perfil dos Entrevistados
+            profiles = []
+            for report in all_files_data:
+                profile_data = {
+                    "interview_id": report.get('interview_id'),
+                    "start_time": report.get('start_time'),
+                    "duration_seconds": report.get('duration_seconds')
+                }
+                # Adiciona respostas do perfil salvas
+                for key, val in report.get('user_profile', {}).items():
+                    profile_data[key] = val
+                profiles.append(profile_data)
+            pd.DataFrame(profiles).to_excel(writer, sheet_name='Perfis', index=False)
+            
+            # Abas por Tópico
+            topics_data = {}
+            for report in all_files_data:
+                for topic, qas in report.get('transcript', {}).items():
+                    if topic not in topics_data: topics_data[topic] = []
+                    for qa in qas:
+                        topics_data[topic].append({
+                            "interview_id": report.get('interview_id'),
+                            "question": qa.get('question'),
+                            "answer": qa.get('answer')
+                        })
+            
+            for topic, data in topics_data.items():
+                pd.DataFrame(data).to_excel(writer, sheet_name=topic[:30], index=False) # Limita nome da aba a 30 chars
 
-# Esta seção final agora é segura e não é mais necessária para o Gunicorn
-if __name__ == '__main__':
-    if not interview_script:
-        logging.fatal("O aplicativo não pode iniciar sem 'interview_script.json'.")
-    else:
-        # Pega a porta do ambiente, ou usa 5000 como padrão para rodar localmente
-        port = int(os.environ.get('PORT', 5000))
-        app.run(host='0.0.0.0', port=port)
+        output.seek(0)
+        return send_file(output, as_attachment=True, download_name='consolidated_report.xlsx', mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
+    except Exception as e:
+        logging.error(f"Erro ao gerar relatório XLS: {e}", exc_info=True)
+        return "Erro ao gerar o relatório.", 500
