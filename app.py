@@ -37,7 +37,18 @@ except Exception as e:
     logging.error(f"FALHA AO INICIALIZAR O CLIENTE GOOGLE TTS: {e}")
 
 # --- PERSONA E ROTEIRO ---
-SYSTEM_PROMPT = "Você é Gui, um entrevistador de IA empático e profissional..." # Mantido o mesmo prompt detalhado
+SYSTEM_PROMPT = """
+Você é "Gui", um entrevistador de IA de elite. Sua personalidade é calorosa, curiosa, empática e profissional. Seu objetivo principal é conduzir uma pesquisa que se sinta como uma conversa humana genuína e fluida.
+Para cada interação, siga estritamente estas diretrizes:
+**FLUXO PRINCIPAL DE CONVERSA (4 PASSOS):**
+1.  **Agradecer/Reconhecer:** Inicie sua resposta com uma frase curta de reconhecimento (a menos que seja a primeira frase da conversa).
+2.  **Refletir/Empatizar:** Faça um BREVE comentário (uma frase) que se conecte ao conteúdo da resposta anterior.
+3.  **Fazer a Ponte:** Use uma frase de transição curta.
+4.  **Perguntar:** Apresente a 'PRÓXIMA PERGUNTA DO ROTEIRO' de forma clara e exata.
+**REGRAS DE EXCEÇÃO E REFINAMENTO:**
+*   **REGRA 1: Se a resposta do usuário for apenas uma concordância curta** (como "sim", "ok"), **NÃO execute o passo 2 (Refletir/Empatizar)**. Apenas agradeça brevemente e faça a próxima pergunta.
+*   **REGRA 2: Se for a primeira pergunta da entrevista**, apenas apresente a pergunta do roteiro.
+"""
 try:
     script_dir = os.path.dirname(os.path.realpath(__file__))
     file_path = os.path.join(script_dir, "interview_script.json")
@@ -52,53 +63,29 @@ ongoing_interviews = {}
 app = Flask(__name__, static_folder='static', static_url_path='')
 CORS(app)
 
-# --- MOTOR DE REGRAS E NAVEGAÇÃO ---
-
-def calculate_criterio_brasil(session):
-    # ... (esta função permanece a mesma) ...
-    pontos = 0
-    respostas = session.get('user_profile', {})
-    pontos_automovel = {"Nenhum": 0, "1": 5, "2": 9, "3": 11, "4 ou mais": 11}
-    pontos_banheiro = {"Nenhum": 0, "1": 4, "2": 7, "3": 10, "4 ou mais": 14}
-    pontos_maquina_lavar = {"Não": 0, "Sim": 3}
-    pontos_escolaridade = {"Fundamental ou menos": 0, "Médio": 2, "Superior": 7}
-    pontos += pontos_automovel.get(respostas.get("F_P4_1", "Nenhum"), 0)
-    pontos += pontos_banheiro.get(respostas.get("F_P4_2", "Nenhum"), 0)
-    pontos += pontos_maquina_lavar.get(respostas.get("F_P4_3", "Não"), 0)
-    pontos += pontos_escolaridade.get(respostas.get("F_P4_4", "Fundamental ou menos"), 0)
-    classe = "DE"
-    if 45 <= pontos: classe = "A"
-    elif 29 <= pontos: classe = "B"
-    elif 17 <= pontos: classe = "C"
-    logging.info(f"Cálculo Critério Brasil: Pontos={pontos}, Classe={classe}")
-    session['user_profile']['classe_social'] = classe
-    if classe == "DE":
-        return "END_INTERVIEW"
-    return "CONTINUE"
+# --- NOVO MOTOR DE REGRAS E NAVEGAÇÃO ---
 
 def interpret_response(question_options, user_answer):
-    # ... (esta função permanece a mesma) ...
     prompt = (f"Contexto: Opções possíveis: {json.dumps(question_options, ensure_ascii=False)}.\n"
               f"Resposta do Usuário: \"{user_answer}\"\n"
-              "Sua Tarefa: Retorne APENAS a opção da lista que corresponde à resposta. Se houver mais de uma, separe por vírgula.")
+              "Sua Tarefa: Analise a resposta e retorne APENAS a opção da lista que corresponde. Se houver mais de uma, separe por vírgula.")
     try:
         response = interpreter_model.generate_content(prompt)
-        interpreted_answer = response.text.strip()
-        logging.info(f"Resposta '{user_answer}' interpretada como: '{interpreted_answer}'")
-        return interpreted_answer
+        return response.text.strip()
     except Exception as e:
         logging.error(f"Erro na interpretação da IA: {e}")
         return user_answer
 
-def navigate_interview(session, user_response):
-    # --- MUDANÇA 1: AGORA ESTA FUNÇÃO RETORNA O MOTIVO DO ENCERRAMENTO ---
+def determine_next_state(session, user_response):
+    """O novo motor de regras. Processa a lógica e retorna o novo estado da entrevista."""
+    current_chapter_name = session['current_chapter']
     current_step_id = session['current_step_id']
-    current_step_data = interview_script["chapters"][session['current_chapter']]['steps'].get(current_step_id)
+    current_step_data = interview_script["chapters"][current_chapter_name]['steps'].get(current_step_id)
 
     if not current_step_data:
-        session['last_action_result'] = "END_CHAPTER"
-        return
+        return {'action': 'END_CHAPTER'}
 
+    # Salva a resposta do usuário no transcript
     topic = current_step_data.get("topic", "N/A")
     if topic not in session['transcript']: session['transcript'][topic] = []
     session['transcript'][topic].append({ "question": session['last_question'], "answer": user_response })
@@ -108,36 +95,34 @@ def navigate_interview(session, user_response):
         final_answer = interpret_response(current_step_data.get("options", []), user_response)
         session['user_profile'][current_step_id] = final_answer
     
+    # Processa ações específicas do passo (ex: cálculo)
     if current_step_data.get("action") == "CALCULATE_CRITERIO_BRASIL":
-        result = calculate_criterio_brasil(session)
-        if result == "END_INTERVIEW":
-            session['last_action_result'] = "END_INTERVIEW"
-            session['termination_reason'] = "Classe Social fora do escopo" # Motivo específico
-            return
+        if calculate_criterio_brasil(session) == "END_INTERVIEW":
+            return {'action': 'TERMINATE', 'reason': 'Classe Social fora do escopo'}
 
+    # Processa a lógica de respostas (cortes, ramificações)
     if "logic" in current_step_data:
         for rule in current_step_data["logic"]:
             action = rule.get("action")
             if rule.get("if_answer") == final_answer or (rule.get("if_answer_contains") and rule.get("if_answer_contains") in final_answer):
                 if action == "END_INTERVIEW":
-                    session['last_action_result'] = "END_INTERVIEW"
-                    session['termination_reason'] = rule.get('reason') # Captura o motivo
-                    return
+                    return {'action': 'TERMINATE', 'reason': rule.get('reason')}
                 elif action == "ADD_CHAPTER":
                     chapter_to_add = rule.get("chapter")
                     if chapter_to_add not in session['chapter_queue']:
                         session['chapter_queue'].append(chapter_to_add)
     
+    # Decide a próxima ação
     if current_step_data.get("next_action") == "START_NEXT_CHAPTER":
-        session['last_action_result'] = "END_CHAPTER"
-        return
+        return {'action': 'END_CHAPTER'}
+    else:
+        next_step_id = current_step_data.get("next_step_id")
+        return {'action': 'CONTINUE', 'next_step_id': next_step_id}
 
-    session['next_step_id'] = current_step_data.get("next_step_id")
-    session['last_action_result'] = "CONTINUE"
 
 def save_report(interview_id):
-    # ... (esta função permanece a mesma) ...
     if interview_id not in ongoing_interviews: return
+    # (O restante desta função permanece o mesmo)
     if not os.path.exists(REPORTS_DIR): os.makedirs(REPORTS_DIR)
     interview_data = ongoing_interviews[interview_id]
     end_time = datetime.utcnow()
@@ -149,13 +134,13 @@ def save_report(interview_id):
     logging.info(f"Relatório salvo: {filepath}")
     del ongoing_interviews[interview_id]
 
+
 # --- ENDPOINTS ---
 @app.route('/')
 def serve_index(): return app.send_static_file('index.html')
 
 @app.route('/start', methods=['POST'])
 def start_interview():
-    # ... (esta função permanece a mesma) ...
     interview_id = str(uuid.uuid4())
     start_chapter = interview_script['start_chapter']
     start_step_id = interview_script['chapters'][start_chapter]['start_step_id']
@@ -177,57 +162,49 @@ def interview_step():
 
     if not session: return jsonify({'error': 'Sessão inválida.'}), 400
 
-    navigate_interview(session, user_response)
+    # O motor de regras decide o que fazer a seguir
+    next_state = determine_next_state(session, user_response)
 
-    # --- MUDANÇA 2: LÓGICA DE ENCERRAMENTO HUMANIZADO ---
-    if session['last_action_result'] == "END_INTERVIEW":
-        termination_reason = session.get('termination_reason', 'o perfil não se encaixa nos critérios da pesquisa')
+    # Processa o resultado do motor
+    if next_state.get('action') == 'TERMINATE':
+        termination_reason = next_state.get('reason', 'o perfil não se encaixa nos critérios')
         base_text = interview_script['final_steps']['TERMINATION_END']['question_text']
-
-        # Pede ao Gemini para personalizar a mensagem de encerramento
-        prompt = (f"Sua tarefa é criar uma mensagem de encerramento de entrevista educada e humanizada. "
-                  f"Use o seguinte texto base: \"{base_text}\". "
-                  f"O motivo específico do encerramento foi: '{termination_reason}'. "
-                  f"Integre o motivo de forma sutil e natural na mensagem base. Seja breve e cordial.")
+        prompt = (f"Sua tarefa é criar uma mensagem de encerramento educada. Use o texto base: \"{base_text}\". "
+                  f"O motivo específico foi: '{termination_reason}'. Integre o motivo sutilmente na mensagem. Seja breve.")
         try:
             convo = generation_model.start_chat(history=[{'role': 'user', 'parts': [SYSTEM_PROMPT]}, {'role': 'model', 'parts': ["Entendido."]}])
             convo.send_message(prompt)
             final_message = convo.last.text.replace('*', '')
-        except Exception as e:
-            logging.error(f"Erro ao gerar mensagem de encerramento humanizada: {e}")
-            final_message = base_text # Usa a mensagem padrão em caso de erro
-
-        session['current_step_id'] = "TERMINATION_END"
+        except Exception:
+            final_message = base_text
         save_report(interview_id)
         return jsonify({'answer': final_message, 'next_step_id': "TERMINATION_END"})
     
-    if session['last_action_result'] == "END_CHAPTER":
-        # ... (lógica de mudança de capítulo permanece a mesma) ...
+    elif next_state.get('action') == 'END_CHAPTER':
         if session['chapter_queue']:
             next_chapter = session['chapter_queue'].pop(0)
             session['current_chapter'] = next_chapter
             next_step_id = interview_script['chapters'][next_chapter]['start_step_id']
         else:
-            finalization_chapter = "FINALIZACAO"
-            session['current_chapter'] = finalization_chapter
-            next_step_id = interview_script['chapters'][finalization_chapter]['start_step_id']
-    else:
-        next_step_id = session['next_step_id']
-    
+            session['current_chapter'] = "FINALIZACAO"
+            next_step_id = interview_script['chapters']["FINALIZACAO"]['start_step_id']
+    else: # CONTINUE
+        next_step_id = next_state.get('next_step_id')
+
     session['current_step_id'] = next_step_id
     next_step_data = interview_script['chapters'][session['current_chapter']]['steps'][next_step_id]
     next_question_to_ask = next_step_data['question_text']
 
+    # Gera a próxima pergunta
     prompt_for_gemini = (f"RESPOSTA ANTERIOR DO USUÁRIO: \"{user_response}\"\n\nPRÓXIMA PERGUNTA DO ROTEIRO: \"{next_question_to_ask}\"\n\nSua tarefa: Como Gui, gere a próxima resposta.")
     try:
-        # ... (lógica de continuação da entrevista permanece a mesma) ...
         convo = generation_model.start_chat(history=[{'role': 'user', 'parts': [SYSTEM_PROMPT]}, {'role': 'model', 'parts': ["Entendido."]}])
         convo.send_message(prompt_for_gemini)
         gui_response = convo.last.text.replace('*', '')
         session['last_question'] = gui_response
         session['last_topic'] = next_step_data.get("topic")
 
-        if next_step_data.get("is_final") or next_step_id == "FINAL_END":
+        if next_step_data.get("is_final"):
             save_report(interview_id)
 
         return jsonify({'answer': gui_response, 'next_step_id': next_step_id, 'interview_id': interview_id})
@@ -235,9 +212,9 @@ def interview_step():
         logging.error(f"Erro na chamada do Gemini: {e}")
         return jsonify({'answer': 'Desculpe, tive um problema técnico.'}), 500
 
+# (Os endpoints /synthesize, /admin, /admin/reports e /admin/download/xls permanecem os mesmos)
 @app.route('/synthesize', methods=['POST'])
 def synthesize():
-    # ... (sem alterações) ...
     if not tts_client: return jsonify({"error": "Serviço de TTS não configurado"}), 500
     data = request.get_json()
     text = data.get('text', '')
@@ -252,9 +229,9 @@ def synthesize():
         logging.error(f"Erro ao chamar a API do Google TTS: {e}")
         return jsonify({"error": "Não foi possível gerar o áudio"}), 500
 
-# --- ENDPOINTS DE ADMINISTRAÇÃO E DOWNLOAD (sem alterações) ---
 @app.route('/admin')
-def admin_panel(): return app.send_static_file('admin.html')
+def admin_panel():
+    return app.send_static_file('admin.html')
 
 @app.route('/admin/reports')
 def list_reports():
@@ -269,7 +246,6 @@ def list_reports():
 
 @app.route('/admin/download/xls')
 def download_xls_report():
-    # ... (sem alterações) ...
     try:
         if not os.path.exists(REPORTS_DIR) or not os.listdir(REPORTS_DIR):
             return "Nenhum relatório encontrado.", 404
@@ -279,21 +255,19 @@ def download_xls_report():
             profiles = []
             for report in all_files_data:
                 profile_data = { "interview_id": report.get('interview_id'), "start_time": report.get('start_time'), "duration_seconds": report.get('duration_seconds') }
-                transcript_profile = report.get('transcript', {}).get('Filtro - Perfil', [])
-                for qa in transcript_profile:
-                    question_key = qa.get('question', '').split('?')[0][-20:].strip()
-                    profile_data[question_key] = qa.get('answer')
+                # Adiciona dados do user_profile que foram interpretados
+                profile_data.update(report.get('user_profile', {}))
                 profiles.append(profile_data)
             pd.DataFrame(profiles).to_excel(writer, sheet_name='Perfis', index=False)
             topics_data = {}
             for report in all_files_data:
                 for topic, qas in report.get('transcript', {}).items():
-                    if topic == 'Filtro - Perfil': continue
                     if topic not in topics_data: topics_data[topic] = []
                     for qa in qas:
                         topics_data[topic].append({ "interview_id": report.get('interview_id'), "question": qa.get('question'), "answer": qa.get('answer') })
             for topic, data in topics_data.items():
-                pd.DataFrame(data).to_excel(writer, sheet_name=topic[:30], index=False)
+                sanitized_topic = re.sub(r'[\\/*?:"<>|]', "", topic)[:30] # Limpa nome da aba
+                pd.DataFrame(data).to_excel(writer, sheet_name=sanitized_topic, index=False)
         output.seek(0)
         return send_file(output, as_attachment=True, download_name='consolidated_report.xlsx', mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
     except Exception as e:
