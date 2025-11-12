@@ -76,53 +76,29 @@ def interpret_response(question_options, user_answer):
         logging.error(f"Erro na interpretação da IA: {e}")
         return user_answer
 
-def determine_next_state(session, user_response):
-    """O novo motor de regras. Processa a lógica e retorna o novo estado da entrevista."""
-    current_chapter_name = session['current_chapter']
-    current_step_id = session['current_step_id']
-    current_step_data = interview_script["chapters"][current_chapter_name]['steps'].get(current_step_id)
-
-    if not current_step_data:
-        return {'action': 'END_CHAPTER'}
-
-    # Salva a resposta do usuário no transcript
-    topic = current_step_data.get("topic", "N/A")
-    if topic not in session['transcript']: session['transcript'][topic] = []
-    session['transcript'][topic].append({ "question": session['last_question'], "answer": user_response })
-
-    final_answer = user_response
-    if current_step_data.get("requires_interpretation"):
-        final_answer = interpret_response(current_step_data.get("options", []), user_response)
-        session['user_profile'][current_step_id] = final_answer
-    
-    # Processa ações específicas do passo (ex: cálculo)
-    if current_step_data.get("action") == "CALCULATE_CRITERIO_BRASIL":
-        if calculate_criterio_brasil(session) == "END_INTERVIEW":
-            return {'action': 'TERMINATE', 'reason': 'Classe Social fora do escopo'}
-
-    # Processa a lógica de respostas (cortes, ramificações)
-    if "logic" in current_step_data:
-        for rule in current_step_data["logic"]:
-            action = rule.get("action")
-            if rule.get("if_answer") == final_answer or (rule.get("if_answer_contains") and rule.get("if_answer_contains") in final_answer):
-                if action == "END_INTERVIEW":
-                    return {'action': 'TERMINATE', 'reason': rule.get('reason')}
-                elif action == "ADD_CHAPTER":
-                    chapter_to_add = rule.get("chapter")
-                    if chapter_to_add not in session['chapter_queue']:
-                        session['chapter_queue'].append(chapter_to_add)
-    
-    # Decide a próxima ação
-    if current_step_data.get("next_action") == "START_NEXT_CHAPTER":
-        return {'action': 'END_CHAPTER'}
-    else:
-        next_step_id = current_step_data.get("next_step_id")
-        return {'action': 'CONTINUE', 'next_step_id': next_step_id}
-
+def calculate_criterio_brasil(session):
+    # (Esta função permanece a mesma)
+    pontos = 0
+    respostas = session.get('user_profile', {})
+    pontos_automovel = {"Nenhum": 0, "1": 5, "2": 9, "3": 11, "4 ou mais": 11}
+    pontos_banheiro = {"Nenhum": 0, "1": 4, "2": 7, "3": 10, "4 ou mais": 14}
+    pontos_maquina_lavar = {"Não": 0, "Sim": 3}
+    pontos_escolaridade = {"Fundamental ou menos": 0, "Médio": 2, "Superior": 7}
+    pontos += pontos_automovel.get(respostas.get("F_P4_1", "Nenhum"), 0)
+    pontos += pontos_banheiro.get(respostas.get("F_P4_2", "Nenhum"), 0)
+    pontos += pontos_maquina_lavar.get(respostas.get("F_P4_3", "Não"), 0)
+    pontos += pontos_escolaridade.get(respostas.get("F_P4_4", "Fundamental ou menos"), 0)
+    classe = "DE"
+    if 45 <= pontos: classe = "A"
+    elif 29 <= pontos: classe = "B"
+    elif 17 <= pontos: classe = "C"
+    session['user_profile']['classe_social'] = classe
+    if classe == "DE": return "END_INTERVIEW"
+    return "CONTINUE"
 
 def save_report(interview_id):
+    # (Esta função permanece a mesma)
     if interview_id not in ongoing_interviews: return
-    # (O restante desta função permanece o mesmo)
     if not os.path.exists(REPORTS_DIR): os.makedirs(REPORTS_DIR)
     interview_data = ongoing_interviews[interview_id]
     end_time = datetime.utcnow()
@@ -132,8 +108,8 @@ def save_report(interview_id):
     filepath = os.path.join(REPORTS_DIR, filename)
     with open(filepath, 'w', encoding='utf-8') as f: json.dump(report, f, ensure_ascii=False, indent=2)
     logging.info(f"Relatório salvo: {filepath}")
-    del ongoing_interviews[interview_id]
-
+    if interview_id in ongoing_interviews:
+        del ongoing_interviews[interview_id]
 
 # --- ENDPOINTS ---
 @app.route('/')
@@ -158,63 +134,95 @@ def interview_step():
     data = request.get_json()
     interview_id = data.get('interview_id')
     user_response = data.get('response', '')
+    current_step_id = data.get('current_step_id')
     session = ongoing_interviews.get(interview_id)
 
     if not session: return jsonify({'error': 'Sessão inválida.'}), 400
+    if not current_step_id: return jsonify({'error': 'ID do passo atual é necessário.'}), 400
 
-    # O motor de regras decide o que fazer a seguir
-    next_state = determine_next_state(session, user_response)
+    # --- NOVO MOTOR DE ESTADO, MAIS ROBUSTO ---
 
-    # Processa o resultado do motor
-    if next_state.get('action') == 'TERMINATE':
-        termination_reason = next_state.get('reason', 'o perfil não se encaixa nos critérios')
-        base_text = interview_script['final_steps']['TERMINATION_END']['question_text']
-        prompt = (f"Sua tarefa é criar uma mensagem de encerramento educada. Use o texto base: \"{base_text}\". "
-                  f"O motivo específico foi: '{termination_reason}'. Integre o motivo sutilmente na mensagem. Seja breve.")
-        try:
-            convo = generation_model.start_chat(history=[{'role': 'user', 'parts': [SYSTEM_PROMPT]}, {'role': 'model', 'parts': ["Entendido."]}])
-            convo.send_message(prompt)
-            final_message = convo.last.text.replace('*', '')
-        except Exception:
-            final_message = base_text
-        save_report(interview_id)
-        return jsonify({'answer': final_message, 'next_step_id': "TERMINATION_END"})
+    # 1. Obter dados do passo ATUAL (que acabou de ser respondido)
+    current_chapter_name = session['current_chapter']
+    current_step_data = interview_script["chapters"][current_chapter_name]['steps'].get(current_step_id)
+
+    # 2. Salvar a resposta do passo ATUAL
+    topic = current_step_data.get("topic", "N/A")
+    if topic not in session['transcript']: session['transcript'][topic] = []
+    session['transcript'][topic].append({ "question": session['last_question'], "answer": user_response })
+
+    # 3. Interpretar a resposta e processar a lógica para encontrar o PRÓXIMO passo
+    final_answer = user_response
+    if current_step_data.get("requires_interpretation"):
+        final_answer = interpret_response(current_step_data.get("options", []), user_response)
+        session['user_profile'][current_step_id] = final_answer
     
-    elif next_state.get('action') == 'END_CHAPTER':
+    # Processa ações (cálculos, cortes, ramificações)
+    if current_step_data.get("action") == "CALCULATE_CRITERIO_BRASIL":
+        if calculate_criterio_brasil(session) == "END_INTERVIEW":
+            return handle_termination(session, "Classe Social fora do escopo")
+
+    if "logic" in current_step_data:
+        for rule in current_step_data["logic"]:
+            if rule.get("if_answer") == final_answer or (rule.get("if_answer_contains") and rule.get("if_answer_contains") in final_answer):
+                if rule.get("action") == "END_INTERVIEW":
+                    return handle_termination(session, rule.get('reason'))
+                elif rule.get("action") == "ADD_CHAPTER":
+                    chapter_to_add = rule.get("chapter")
+                    if chapter_to_add not in session['chapter_queue']:
+                        session['chapter_queue'].append(chapter_to_add)
+    
+    # 4. Determinar o PRÓXIMO passo ou capítulo
+    if current_step_data.get("next_action") == "START_NEXT_CHAPTER":
         if session['chapter_queue']:
             next_chapter = session['chapter_queue'].pop(0)
             session['current_chapter'] = next_chapter
             next_step_id = interview_script['chapters'][next_chapter]['start_step_id']
-        else:
+        else: # Fim de todos os capítulos
             session['current_chapter'] = "FINALIZACAO"
             next_step_id = interview_script['chapters']["FINALIZACAO"]['start_step_id']
-    else: # CONTINUE
-        next_step_id = next_state.get('next_step_id')
-
+    else: # Continua no mesmo capítulo
+        next_step_id = current_step_data.get("next_step_id")
+        
     session['current_step_id'] = next_step_id
     next_step_data = interview_script['chapters'][session['current_chapter']]['steps'][next_step_id]
-    next_question_to_ask = next_step_data['question_text']
 
-    # Gera a próxima pergunta
-    prompt_for_gemini = (f"RESPOSTA ANTERIOR DO USUÁRIO: \"{user_response}\"\n\nPRÓXIMA PERGUNTA DO ROTEIRO: \"{next_question_to_ask}\"\n\nSua tarefa: Como Gui, gere a próxima resposta.")
+    # 5. Se o PRÓXIMO passo for final, encerra. Senão, prepara a pergunta.
+    if next_step_data.get("is_final"):
+        final_message = next_step_data['question_text']
+        save_report(interview_id)
+        return jsonify({'answer': final_message, 'next_step_id': next_step_id})
+    else:
+        next_question_to_ask = next_step_data['question_text']
+        prompt_for_gemini = (f"RESPOSTA ANTERIOR DO USUÁRIO: \"{user_response}\"\n\nPRÓXIMA PERGUNTA DO ROTEIRO: \"{next_question_to_ask}\"\n\nSua tarefa: Como Gui, gere a próxima resposta.")
+        try:
+            convo = generation_model.start_chat(history=[{'role': 'user', 'parts': [SYSTEM_PROMPT]}, {'role': 'model', 'parts': ["Entendido."]}])
+            convo.send_message(prompt_for_gemini)
+            gui_response = convo.last.text.replace('*', '')
+            session['last_question'] = gui_response
+            session['last_topic'] = next_step_data.get("topic")
+            return jsonify({'answer': gui_response, 'next_step_id': next_step_id, 'interview_id': interview_id})
+        except Exception as e:
+            logging.error(f"Erro na chamada do Gemini: {e}")
+            return jsonify({'answer': 'Desculpe, tive um problema técnico.'}), 500
+
+def handle_termination(session, reason):
+    """Função centralizada para lidar com encerramentos por filtro."""
+    base_text = interview_script['final_steps']['TERMINATION_END']['question_text']
+    prompt = (f"Sua tarefa é criar uma mensagem de encerramento educada. Use o texto base: \"{base_text}\". "
+              f"O motivo específico foi: '{reason}'. Integre o motivo sutilmente na mensagem. Seja breve.")
     try:
         convo = generation_model.start_chat(history=[{'role': 'user', 'parts': [SYSTEM_PROMPT]}, {'role': 'model', 'parts': ["Entendido."]}])
-        convo.send_message(prompt_for_gemini)
-        gui_response = convo.last.text.replace('*', '')
-        session['last_question'] = gui_response
-        session['last_topic'] = next_step_data.get("topic")
+        convo.send_message(prompt)
+        final_message = convo.last.text.replace('*', '')
+    except Exception:
+        final_message = base_text
+    save_report(session['interview_id'])
+    return jsonify({'answer': final_message, 'next_step_id': "TERMINATION_END"})
 
-        if next_step_data.get("is_final"):
-            save_report(interview_id)
-
-        return jsonify({'answer': gui_response, 'next_step_id': next_step_id, 'interview_id': interview_id})
-    except Exception as e:
-        logging.error(f"Erro na chamada do Gemini: {e}")
-        return jsonify({'answer': 'Desculpe, tive um problema técnico.'}), 500
-
-# (Os endpoints /synthesize, /admin, /admin/reports e /admin/download/xls permanecem os mesmos)
 @app.route('/synthesize', methods=['POST'])
 def synthesize():
+    # ... (sem alterações) ...
     if not tts_client: return jsonify({"error": "Serviço de TTS não configurado"}), 500
     data = request.get_json()
     text = data.get('text', '')
@@ -229,6 +237,7 @@ def synthesize():
         logging.error(f"Erro ao chamar a API do Google TTS: {e}")
         return jsonify({"error": "Não foi possível gerar o áudio"}), 500
 
+# (Os endpoints de Admin permanecem os mesmos)
 @app.route('/admin')
 def admin_panel():
     return app.send_static_file('admin.html')
@@ -255,7 +264,6 @@ def download_xls_report():
             profiles = []
             for report in all_files_data:
                 profile_data = { "interview_id": report.get('interview_id'), "start_time": report.get('start_time'), "duration_seconds": report.get('duration_seconds') }
-                # Adiciona dados do user_profile que foram interpretados
                 profile_data.update(report.get('user_profile', {}))
                 profiles.append(profile_data)
             pd.DataFrame(profiles).to_excel(writer, sheet_name='Perfis', index=False)
@@ -266,10 +274,10 @@ def download_xls_report():
                     for qa in qas:
                         topics_data[topic].append({ "interview_id": report.get('interview_id'), "question": qa.get('question'), "answer": qa.get('answer') })
             for topic, data in topics_data.items():
-                sanitized_topic = re.sub(r'[\\/*?:"<>|]', "", topic)[:30] # Limpa nome da aba
+                sanitized_topic = re.sub(r'[\\/*?:"<>|]', "", topic)[:30]
                 pd.DataFrame(data).to_excel(writer, sheet_name=sanitized_topic, index=False)
         output.seek(0)
         return send_file(output, as_attachment=True, download_name='consolidated_report.xlsx', mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
     except Exception as e:
         logging.error(f"Erro ao gerar relatório XLS: {e}", exc_info=True)
-        return "Erro ao gerar o relatório.", 500
+        return "Erro ao gerar o relatório.", 500```
