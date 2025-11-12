@@ -280,4 +280,4 @@ def download_xls_report():
         return send_file(output, as_attachment=True, download_name='consolidated_report.xlsx', mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
     except Exception as e:
         logging.error(f"Erro ao gerar relatório XLS: {e}", exc_info=True)
-        return "Erro ao gerar o relatório.", 500```
+        return "Erro ao gerar o relatório.", 500
